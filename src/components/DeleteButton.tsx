@@ -23,7 +23,13 @@ export function DeleteButton({
       onClick={() => {
         if (!window.confirm(confirmMessage)) return;
         startTransition(async () => {
-          await action();
+          try {
+            await action();
+          } catch (e) {
+            window.alert(
+              e instanceof Error ? e.message : "Delete failed"
+            );
+          }
         });
       }}
     >

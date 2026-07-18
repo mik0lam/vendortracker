@@ -4,6 +4,7 @@ import {
   computeMonthlyPnL,
   computePartnerSettlement,
   inventoryValueAtCost,
+  receiverLabel,
 } from "@/lib/calculations";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { itemDisplayLabel } from "@/lib/item-label";
@@ -82,24 +83,38 @@ export default async function ReportsPage({
   const { year, month } = parseMonth(params.month);
   const monthValue = `${year}-${String(month).padStart(2, "0")}`;
 
-  const [partners, inventory, sales, expenses, contributions] =
-    await Promise.all([
-      prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
-      prisma.inventoryItem.findMany({ orderBy: { purchaseDate: "desc" } }),
-      prisma.sale.findMany({
-        include: { inventoryItem: true },
-        orderBy: { saleDate: "desc" },
-      }),
-      prisma.expense.findMany({ orderBy: { date: "desc" } }),
-      prisma.contribution.findMany(),
-    ]);
+  const [
+    partners,
+    inventory,
+    sales,
+    expenses,
+    contributions,
+    collectionWithdrawals,
+    trades,
+  ] = await Promise.all([
+    prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.inventoryItem.findMany({ orderBy: { purchaseDate: "desc" } }),
+    prisma.sale.findMany({
+      include: { inventoryItem: true, receivedBy: true },
+      orderBy: { saleDate: "desc" },
+    }),
+    prisma.expense.findMany({ orderBy: { date: "desc" } }),
+    prisma.contribution.findMany(),
+    prisma.collectionWithdrawal.findMany({
+      include: { inventoryItem: true, takenBy: true },
+      orderBy: { date: "desc" },
+    }),
+    prisma.trade.findMany(),
+  ]);
 
   const pnl = computeMonthlyPnL(year, month, sales, expenses, partners);
   const settlement = computePartnerSettlement(
     partners,
     contributions,
     sales,
-    expenses
+    expenses,
+    collectionWithdrawals,
+    trades
   );
   const inStock = inventory.filter((i) => i.status === "in_stock");
   const invValue = inventoryValueAtCost(inventory);
@@ -107,6 +122,12 @@ export default async function ReportsPage({
     month: "long",
     year: "numeric",
   });
+  const monthCollectionWithdrawals = collectionWithdrawals.filter(
+    (withdrawal) => {
+      const date = new Date(withdrawal.date);
+      return date.getFullYear() === year && date.getMonth() + 1 === month;
+    }
+  );
 
   return (
     <div>
@@ -235,6 +256,14 @@ export default async function ReportsPage({
                   <span>Withdrawn: {formatCurrency(p.withdrawn)}</span>
                   <span>Profit share: {formatCurrency(p.profitShare)}</span>
                   <span>Expense share: {formatCurrency(p.expenseShare)}</span>
+                  <span>Sales received: {formatCurrency(p.salesReceived)}</span>
+                  <span>
+                    Trade cash received: {formatCurrency(p.tradeCashReceived)}
+                  </span>
+                  <span>
+                    Personal collection:{" "}
+                    {formatCurrency(p.personalCollectionTaken)}
+                  </span>
                 </div>
               </li>
             ))}
@@ -302,6 +331,7 @@ export default async function ReportsPage({
               <tr>
                 <Th>Date</Th>
                 <Th>Card</Th>
+                <Th>Received by</Th>
                 <Th>Sale price</Th>
                 <Th>Cost</Th>
               </tr>
@@ -313,6 +343,7 @@ export default async function ReportsPage({
                   <Td className="font-medium">
                     {itemDisplayLabel(sale.inventoryItem)}
                   </Td>
+                  <Td className="text-sm text-muted">{receiverLabel(sale)}</Td>
                   <Td className="font-medium tabular-nums">
                     {formatCurrency(sale.salePrice)}
                   </Td>
@@ -320,6 +351,40 @@ export default async function ReportsPage({
                     {formatCurrency(
                       sale.inventoryItem.unitCost * sale.inventoryItem.quantity
                     )}
+                  </Td>
+                </TableRow>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </Card>
+
+      <Card className="mt-5">
+        <SectionHeader title={`Personal collection in ${monthLabel}`} />
+        {monthCollectionWithdrawals.length === 0 ? (
+          <EmptyState message={`No collection withdrawals in ${monthLabel}.`} />
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Date</Th>
+                <Th>Card</Th>
+                <Th>Taken by</Th>
+                <Th>Cost basis</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {monthCollectionWithdrawals.map((withdrawal) => (
+                <TableRow key={withdrawal.id}>
+                  <Td className="text-muted">
+                    {formatDate(withdrawal.date)}
+                  </Td>
+                  <Td className="font-medium">
+                    {itemDisplayLabel(withdrawal.inventoryItem)}
+                  </Td>
+                  <Td>{withdrawal.takenBy.name}</Td>
+                  <Td className="tabular-nums">
+                    {formatCurrency(withdrawal.costBasis)}
                   </Td>
                 </TableRow>
               ))}

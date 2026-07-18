@@ -7,46 +7,121 @@ datasource db {
 }
 
 model Partner {
-  id                 String         @id @default(cuid())
-  name               String
-  splitPercent       Float          @default(50)
-  createdAt          DateTime       @default(now())
-  contributions      Contribution[]
-  paidBuyItems       BuyLineItem[]  @relation("PaidBuys")
-  collectionBuyItems BuyLineItem[]  @relation("CollectionBuys")
+  id                    String                 @id @default(cuid())
+  name                  String
+  splitPercent          Float                  @default(50)
+  createdAt             DateTime               @default(now())
+  contributions         Contribution[]
+  paidBuyItems          BuyLineItem[]          @relation("PaidBuys")
+  collectionBuyItems    BuyLineItem[]          @relation("CollectionBuys")
+  receivedSales         Sale[]                 @relation("ReceivedSales")
+  paidInventoryItems    InventoryItem[]        @relation("PaidInventoryItems")
+  collectionWithdrawals CollectionWithdrawal[]
+  tradesCashPaid        Trade[]                @relation("TradeCashPaid")
+  tradesCashReceived    Trade[]                @relation("TradeCashReceived")
 }
 
 model InventoryItem {
-  id           String       @id @default(cuid())
-  name         String
-  setName      String?
-  cardNumber   String?
-  cardType     String       @default("raw") // raw | graded
-  condition    String? // NM, LP, MP, HP, DMG
-  gradeCompany String? // PSA, BGS, CGC, other
-  grade        String?
-  certNumber   String?
-  purchaseDate DateTime
-  unitCost     Float
-  quantity     Int          @default(1)
-  status       String       @default("in_stock") // in_stock | sold
-  notes        String?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  sale         Sale?
-  buyLineItem  BuyLineItem?
+  id                     String                @id @default(cuid())
+  name                   String
+  setName                String?
+  cardNumber             String?
+  cardType               String                @default("raw") // raw | graded
+  condition              String? // NM, LP, MP, HP, DMG
+  gradeCompany           String? // PSA, BGS, CGC, other
+  grade                  String?
+  certNumber             String?
+  purchaseDate           DateTime
+  unitCost               Float
+  quantity               Int                   @default(1)
+  status                 String                @default("in_stock") // in_stock | sold | personal | traded
+  notes                  String?
+  tcgplayerUrl           String?
+  tcgplayerProductId     Int?
+  tcgplayerGroupId       Int?
+  imageUrl               String?
+  marketPrice            Float?
+  marketPriceUpdatedAt   DateTime?
+  /// en | ja — TCGplayer catalog language
+  language               String                @default("en")
+  /// null = shared business pool
+  paidByPartnerId        String?
+  paidBy                 Partner?              @relation("PaidInventoryItems", fields: [paidByPartnerId], references: [id], onDelete: SetNull)
+  purchaseContributionId String?               @unique
+  purchaseContribution   Contribution?         @relation("InventoryPurchaseContribution", fields: [purchaseContributionId], references: [id], onDelete: SetNull)
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  sale                   Sale?
+  buyLineItem            BuyLineItem?
+  collectionWithdrawal   CollectionWithdrawal?
+  tradeOutItem           TradeOutItem?
+  tradeInItem            TradeInItem?
 }
 
 model Sale {
+  id                  String        @id @default(cuid())
+  inventoryItemId     String        @unique
+  inventoryItem       InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  saleDate            DateTime
+  salePrice           Float
+  platformFees        Float         @default(0)
+  shippingCost        Float         @default(0)
+  notes               String?
+  /// null = shared business pool; otherwise partner who personally received payment
+  receivedByPartnerId String?
+  receivedBy          Partner?      @relation("ReceivedSales", fields: [receivedByPartnerId], references: [id], onDelete: SetNull)
+  createdAt           DateTime      @default(now())
+}
+
+model CollectionWithdrawal {
+  id               String        @id @default(cuid())
+  inventoryItemId  String        @unique
+  inventoryItem    InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  takenByPartnerId String
+  takenBy          Partner       @relation(fields: [takenByPartnerId], references: [id])
+  date             DateTime
+  costBasis        Float
+  notes            String?
+  createdAt        DateTime      @default(now())
+}
+
+model Trade {
+  id                        String        @id @default(cuid())
+  buySessionId              String?
+  buySession                BuySession?   @relation(fields: [buySessionId], references: [id], onDelete: Restrict)
+  date                      DateTime
+  notes                     String?
+  cashPaid                  Float         @default(0)
+  cashReceived              Float         @default(0)
+  /// null = shared business pool
+  cashPaidByPartnerId       String?
+  cashPaidBy                Partner?      @relation("TradeCashPaid", fields: [cashPaidByPartnerId], references: [id], onDelete: SetNull)
+  /// null = shared business pool
+  cashReceivedByPartnerId   String?
+  cashReceivedBy            Partner?      @relation("TradeCashReceived", fields: [cashReceivedByPartnerId], references: [id], onDelete: SetNull)
+  cashPaidContributionId    String?       @unique
+  cashPaidContribution      Contribution? @relation("TradeCashPaidContribution", fields: [cashPaidContributionId], references: [id], onDelete: SetNull)
+  createdAt                 DateTime      @default(now())
+  outItems                  TradeOutItem[]
+  inItems                   TradeInItem[]
+}
+
+model TradeOutItem {
   id              String        @id @default(cuid())
+  tradeId         String
+  trade           Trade         @relation(fields: [tradeId], references: [id], onDelete: Cascade)
   inventoryItemId String        @unique
-  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
-  saleDate        DateTime
-  salePrice       Float
-  platformFees    Float         @default(0)
-  shippingCost    Float         @default(0)
-  notes           String?
-  createdAt       DateTime      @default(now())
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+}
+
+model TradeInItem {
+  id              String        @id @default(cuid())
+  tradeId         String
+  trade           Trade         @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  inventoryItemId String        @unique
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  marketPriceUsed Float         @default(0)
+  allocatedCost   Float
 }
 
 model Expense {
@@ -59,14 +134,16 @@ model Expense {
 }
 
 model Contribution {
-  id          String       @id @default(cuid())
-  partnerId   String
-  partner     Partner      @relation(fields: [partnerId], references: [id], onDelete: Cascade)
-  date        DateTime
-  amount      Float // positive = contribution in, negative = withdrawal
-  note        String?
-  createdAt   DateTime     @default(now())
-  buyLineItem BuyLineItem?
+  id                String         @id @default(cuid())
+  partnerId         String
+  partner           Partner        @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  date              DateTime
+  amount            Float // positive = contribution in, negative = withdrawal
+  note              String?
+  createdAt         DateTime       @default(now())
+  buyLineItem       BuyLineItem?
+  inventoryPurchase InventoryItem? @relation("InventoryPurchaseContribution")
+  tradeCashPaid     Trade?         @relation("TradeCashPaidContribution")
 }
 
 model BuySession {
@@ -77,6 +154,7 @@ model BuySession {
   notes     String?
   createdAt DateTime      @default(now())
   items     BuyLineItem[]
+  trades    Trade[]
 }
 
 model BuyLineItem {
@@ -103,5 +181,12 @@ model BuyLineItem {
   contributionId      String?        @unique
   contribution        Contribution?  @relation(fields: [contributionId], references: [id], onDelete: SetNull)
   notes               String?
+  tcgplayerUrl        String?
+  tcgplayerProductId  Int?
+  tcgplayerGroupId    Int?
+  imageUrl            String?
+  marketPrice         Float?
+  /// en | ja — TCGplayer catalog language
+  language            String         @default("en")
   createdAt           DateTime       @default(now())
 }

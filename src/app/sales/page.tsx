@@ -1,7 +1,9 @@
 import { Receipt } from "lucide-react";
-import { deleteSale } from "@/app/actions";
+import { deleteCollectionWithdrawal, deleteSale } from "@/app/actions";
 import { DeleteButton } from "@/components/DeleteButton";
 import { SaleForm } from "@/components/SaleForm";
+import { CollectionWithdrawalForm } from "@/components/CollectionWithdrawalForm";
+import { CardThumb } from "@/components/CardThumb";
 import {
   Card,
   EmptyState,
@@ -12,22 +14,31 @@ import {
   Td,
   Th,
 } from "@/components/ui";
-import { saleNetProfit } from "@/lib/calculations";
+import {
+  receiverLabel,
+  saleNetProfit,
+} from "@/lib/calculations";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { itemDisplayLabel } from "@/lib/item-label";
 import { prisma } from "@/lib/db";
+import { fetchMarketPricesForGroups } from "@/lib/tcgcsv";
 
 export const dynamic = "force-dynamic";
 
 export default async function SalesPage() {
-  const [sales, inStock] = await Promise.all([
+  const [sales, inStock, partners, collectionWithdrawals] = await Promise.all([
     prisma.sale.findMany({
-      include: { inventoryItem: true },
+      include: { inventoryItem: true, receivedBy: true },
       orderBy: { saleDate: "desc" },
     }),
     prisma.inventoryItem.findMany({
       where: { status: "in_stock" },
       orderBy: { purchaseDate: "desc" },
+    }),
+    prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.collectionWithdrawal.findMany({
+      include: { inventoryItem: true, takenBy: true },
+      orderBy: { date: "desc" },
     }),
   ]);
 
@@ -35,8 +46,20 @@ export default async function SalesPage() {
     id: i.id,
     name: i.name,
     unitCost: i.unitCost,
-    label: `${itemDisplayLabel(i)} · cost ${formatCurrency(i.unitCost)}`,
+    quantity: i.quantity,
+    imageUrl: i.imageUrl,
+    label: `${itemDisplayLabel(i)} · cost ${formatCurrency(i.unitCost * i.quantity)}`,
   }));
+
+  const partnerOptions = partners.map((p) => ({ id: p.id, name: p.name }));
+
+  const groupIds = sales
+    .filter((s) => s.inventoryItem.tcgplayerGroupId != null)
+    .map((s) => ({
+      groupId: s.inventoryItem.tcgplayerGroupId as number,
+      language: s.inventoryItem.language,
+    }));
+  const livePrices = await fetchMarketPricesForGroups(groupIds);
 
   return (
     <div>
@@ -45,10 +68,25 @@ export default async function SalesPage() {
         description="Sale history with net profit after cost, fees, and shipping."
       />
 
-      <Card hover className="mb-8">
-        <SectionHeader title="Record sale" description="Select a card and enter sale details" />
-        <SaleForm items={options} />
-      </Card>
+      <div className="mb-8 grid gap-5 lg:grid-cols-2">
+        <Card hover>
+          <SectionHeader
+            title="Record sale"
+            description="Sell an in-stock card"
+          />
+          <SaleForm items={options} partners={partnerOptions} />
+        </Card>
+        <Card hover>
+          <SectionHeader
+            title="Move to personal collection"
+            description="Remove a shared card at purchase cost"
+          />
+          <CollectionWithdrawalForm
+            items={options}
+            partners={partnerOptions}
+          />
+        </Card>
+      </div>
 
       <SectionHeader
         title="Sale history"
@@ -66,9 +104,11 @@ export default async function SalesPage() {
             <tr>
               <Th>Card</Th>
               <Th>Sale date</Th>
+              <Th>Received by</Th>
               <Th>Sale price</Th>
               <Th>Fees + ship</Th>
               <Th>Cost</Th>
+              <Th>TCG market</Th>
               <Th>Net profit</Th>
               <Th></Th>
             </tr>
@@ -78,14 +118,28 @@ export default async function SalesPage() {
               const cost =
                 sale.inventoryItem.unitCost * sale.inventoryItem.quantity;
               const profit = saleNetProfit(sale);
+              const live =
+                sale.inventoryItem.tcgplayerProductId != null
+                  ? livePrices.get(sale.inventoryItem.tcgplayerProductId)
+                  : undefined;
+              const market =
+                live ?? sale.inventoryItem.marketPrice ?? null;
               return (
                 <TableRow key={sale.id}>
                   <Td>
-                    <div className="font-semibold">
-                      {itemDisplayLabel(sale.inventoryItem)}
+                    <div className="flex items-center gap-3">
+                      <CardThumb
+                        src={sale.inventoryItem.imageUrl}
+                        alt={sale.inventoryItem.name}
+                        size="sm"
+                      />
+                      <div className="font-semibold">
+                        {itemDisplayLabel(sale.inventoryItem)}
+                      </div>
                     </div>
                   </Td>
                   <Td className="text-muted">{formatDate(sale.saleDate)}</Td>
+                  <Td className="text-sm">{receiverLabel(sale)}</Td>
                   <Td className="font-medium tabular-nums">
                     {formatCurrency(sale.salePrice)}
                   </Td>
@@ -93,6 +147,11 @@ export default async function SalesPage() {
                     {formatCurrency(sale.platformFees + sale.shippingCost)}
                   </Td>
                   <Td className="tabular-nums">{formatCurrency(cost)}</Td>
+                  <Td className="tabular-nums text-muted">
+                    {market != null
+                      ? formatCurrency(market * sale.inventoryItem.quantity)
+                      : "—"}
+                  </Td>
                   <Td>
                     <span
                       className={`inline-flex rounded-lg px-2 py-0.5 text-sm font-bold tabular-nums ${
@@ -116,6 +175,69 @@ export default async function SalesPage() {
           </tbody>
         </Table>
       )}
+
+      <div className="mt-8">
+        <SectionHeader
+          title="Collection withdrawals"
+          description={`${collectionWithdrawals.length} card${
+            collectionWithdrawals.length === 1 ? "" : "s"
+          } moved to personal collections`}
+        />
+        {collectionWithdrawals.length === 0 ? (
+          <EmptyState message="No cards moved to personal collections." />
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Card</Th>
+                <Th>Date</Th>
+                <Th>Taken by</Th>
+                <Th>Cost basis</Th>
+                <Th>Settlement impact</Th>
+                <Th></Th>
+              </tr>
+            </thead>
+            <tbody>
+              {collectionWithdrawals.map((withdrawal) => (
+                <TableRow key={withdrawal.id}>
+                  <Td>
+                    <div className="flex items-center gap-3">
+                      <CardThumb
+                        src={withdrawal.inventoryItem.imageUrl}
+                        alt={withdrawal.inventoryItem.name}
+                        size="sm"
+                      />
+                      <span className="font-semibold">
+                        {itemDisplayLabel(withdrawal.inventoryItem)}
+                      </span>
+                    </div>
+                  </Td>
+                  <Td className="text-muted">
+                    {formatDate(withdrawal.date)}
+                  </Td>
+                  <Td>{withdrawal.takenBy.name}</Td>
+                  <Td className="font-medium tabular-nums">
+                    {formatCurrency(withdrawal.costBasis)}
+                  </Td>
+                  <Td className="text-sm text-muted">
+                    Owes other partner{" "}
+                    {formatCurrency(withdrawal.costBasis / 2)}
+                  </Td>
+                  <Td>
+                    <DeleteButton
+                      confirmMessage="Reverse this withdrawal and return the card to inventory?"
+                      action={deleteCollectionWithdrawal.bind(
+                        null,
+                        withdrawal.id
+                      )}
+                    />
+                  </Td>
+                </TableRow>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </div>
     </div>
   );
 }

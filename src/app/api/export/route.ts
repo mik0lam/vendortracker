@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   computeMonthlyPnL,
+  receiverLabel,
+  saleNetProceeds,
   saleNetProfit,
 } from "@/lib/calculations";
 import { escapeCsv } from "@/lib/format";
@@ -38,14 +40,19 @@ export async function GET(request: NextRequest) {
   const { year, month } = parseMonth(request.nextUrl.searchParams.get("month"));
   const monthTag = `${year}-${String(month).padStart(2, "0")}`;
 
-  const [partners, inventory, sales, expenses] = await Promise.all([
+  const [partners, inventory, sales, expenses, collectionWithdrawals] =
+    await Promise.all([
     prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.inventoryItem.findMany({ orderBy: { purchaseDate: "desc" } }),
     prisma.sale.findMany({
-      include: { inventoryItem: true },
+      include: { inventoryItem: true, receivedBy: true },
       orderBy: { saleDate: "desc" },
     }),
     prisma.expense.findMany({ orderBy: { date: "desc" } }),
+    prisma.collectionWithdrawal.findMany({
+      include: { inventoryItem: true, takenBy: true },
+      orderBy: { date: "desc" },
+    }),
   ]);
 
   if (type === "sales") {
@@ -57,9 +64,11 @@ export async function GET(request: NextRequest) {
       [
         "Sale Date",
         "Card",
+        "Received By",
         "Sale Price",
         "Platform Fees",
         "Shipping Cost",
+        "Net Proceeds",
         "Cost Basis",
         "Net Profit",
         "Notes",
@@ -68,9 +77,11 @@ export async function GET(request: NextRequest) {
         [
           escapeCsv(s.saleDate.toISOString().slice(0, 10)),
           escapeCsv(itemDisplayLabel(s.inventoryItem)),
+          escapeCsv(receiverLabel(s)),
           escapeCsv(s.salePrice),
           escapeCsv(s.platformFees),
           escapeCsv(s.shippingCost),
+          escapeCsv(saleNetProceeds(s)),
           escapeCsv(s.inventoryItem.unitCost * s.inventoryItem.quantity),
           escapeCsv(saleNetProfit(s)),
           escapeCsv(s.notes),
@@ -166,6 +177,15 @@ export async function GET(request: NextRequest) {
     ),
     ...pnl.expenses.map((e) =>
       ["Expense Detail", escapeCsv(e.category), escapeCsv(e.amount)].join(",")
+    ),
+    ...collectionWithdrawals.map((withdrawal) =>
+      [
+        "Collection Withdrawal",
+        escapeCsv(
+          `${itemDisplayLabel(withdrawal.inventoryItem)} → ${withdrawal.takenBy.name}`
+        ),
+        escapeCsv(withdrawal.costBasis),
+      ].join(",")
     ),
   ];
 

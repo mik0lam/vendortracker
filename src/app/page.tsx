@@ -4,8 +4,9 @@ import {
   TrendingUp,
   ShoppingBag,
   Users,
-  Lightbulb,
   ArrowRight,
+  ArrowLeftRight,
+  Receipt,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -14,9 +15,10 @@ import {
   inventoryValueAtCost,
   monthToDateProfit,
 } from "@/lib/calculations";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
 import { prisma } from "@/lib/db";
 import {
+  Badge,
   Card,
   LinkButton,
   PageHeader,
@@ -25,26 +27,124 @@ import {
 
 export const dynamic = "force-dynamic";
 
+type ActivityItem = {
+  id: string;
+  sortAt: number;
+  href: string;
+  kind: "sale" | "trade" | "buy";
+  title: string;
+  detail: string;
+};
+
 export default async function DashboardPage() {
-  const [partners, inventory, sales, expenses, contributions] =
-    await Promise.all([
-      prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
-      prisma.inventoryItem.findMany(),
-      prisma.sale.findMany({ include: { inventoryItem: true } }),
-      prisma.expense.findMany(),
-      prisma.contribution.findMany(),
-    ]);
+  const [
+    partners,
+    inventory,
+    sales,
+    expenses,
+    contributions,
+    collectionWithdrawals,
+    trades,
+    recentSales,
+    recentTrades,
+    recentBuys,
+  ] = await Promise.all([
+    prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.inventoryItem.findMany(),
+    prisma.sale.findMany({
+      include: { inventoryItem: true, receivedBy: true },
+    }),
+    prisma.expense.findMany(),
+    prisma.contribution.findMany(),
+    prisma.collectionWithdrawal.findMany(),
+    prisma.trade.findMany(),
+    prisma.sale.findMany({
+      take: 12,
+      orderBy: { createdAt: "desc" },
+      include: { inventoryItem: true },
+    }),
+    prisma.trade.findMany({
+      take: 12,
+      orderBy: { createdAt: "desc" },
+      include: {
+        outItems: { include: { inventoryItem: true } },
+        inItems: { include: { inventoryItem: true } },
+      },
+    }),
+    prisma.buyLineItem.findMany({
+      take: 12,
+      orderBy: { createdAt: "desc" },
+      include: { buySession: true },
+    }),
+  ]);
 
   const inStock = inventory.filter((i) => i.status === "in_stock");
-  const cash = cashInPool(contributions, sales, expenses, inventory);
+  const cash = cashInPool(contributions, sales, expenses, inventory, trades);
   const invValue = inventoryValueAtCost(inventory);
   const mtd = monthToDateProfit(sales, expenses);
   const settlement = computePartnerSettlement(
     partners,
     contributions,
     sales,
-    expenses
+    expenses,
+    collectionWithdrawals,
+    trades
   );
+
+  const activity: ActivityItem[] = [
+    ...recentSales.map((sale) => ({
+      id: `sale-${sale.id}`,
+      sortAt: new Date(sale.createdAt).getTime(),
+      href: "/sales",
+      kind: "sale" as const,
+      title: `Sold ${sale.inventoryItem.name}`,
+      detail: `${formatCurrency(sale.salePrice)} · ${formatDate(sale.saleDate)}`,
+    })),
+    ...recentTrades.map((trade) => {
+      const outNames = trade.outItems
+        .map((row) => row.inventoryItem.name)
+        .slice(0, 2)
+        .join(", ");
+      const inNames = trade.inItems
+        .map((row) => row.inventoryItem.name)
+        .slice(0, 2)
+        .join(", ");
+      const moreOut =
+        trade.outItems.length > 2 ? ` +${trade.outItems.length - 2}` : "";
+      const moreIn =
+        trade.inItems.length > 2 ? ` +${trade.inItems.length - 2}` : "";
+      const cashBits: string[] = [];
+      if (trade.cashPaid > 0) cashBits.push(`paid ${formatCurrency(trade.cashPaid)}`);
+      if (trade.cashReceived > 0) {
+        cashBits.push(`recv ${formatCurrency(trade.cashReceived)}`);
+      }
+      return {
+        id: `trade-${trade.id}`,
+        sortAt: new Date(trade.createdAt).getTime(),
+        href: trade.buySessionId ? `/buy/${trade.buySessionId}` : "/trades",
+        kind: "trade" as const,
+        title: `Trade · ${outNames}${moreOut} → ${inNames}${moreIn}`,
+        detail: [
+          formatDate(trade.date),
+          cashBits.length > 0 ? cashBits.join(", ") : "no cash",
+        ].join(" · "),
+      };
+    }),
+    ...recentBuys.map((buy) => ({
+      id: `buy-${buy.id}`,
+      sortAt: new Date(buy.createdAt).getTime(),
+      href: `/buy/${buy.buySessionId}`,
+      kind: "buy" as const,
+      title: `Bought ${buy.name}`,
+      detail: [
+        buy.buySession.name,
+        formatCurrency(buy.unitCost * buy.quantity),
+        formatDate(buy.createdAt),
+      ].join(" · "),
+    })),
+  ]
+    .sort((a, b) => b.sortAt - a.sortAt)
+    .slice(0, 12);
 
   return (
     <div>
@@ -66,7 +166,7 @@ export default async function DashboardPage() {
         <StatCard
           label="Cash in pool"
           value={formatCurrency(cash)}
-          hint="Contributions − purchases + net sales − expenses"
+          hint="Shared-pool cash only (personal sale receipts excluded)"
           tone="indigo"
           icon={<Banknote className="h-[18px] w-[18px]" />}
         />
@@ -115,6 +215,15 @@ export default async function DashboardPage() {
                   <p className="mt-0.5 text-xs text-muted">
                     Contributed {formatCurrency(p.contributed)} · Profit share{" "}
                     {formatCurrency(p.profitShare)}
+                    {p.salesReceived > 0
+                      ? ` · Sales received ${formatCurrency(p.salesReceived)}`
+                      : ""}
+                    {p.tradeCashReceived > 0
+                      ? ` · Trade cash ${formatCurrency(p.tradeCashReceived)}`
+                      : ""}
+                    {p.personalCollectionTaken > 0
+                      ? ` · Collection ${formatCurrency(p.personalCollectionTaken)}`
+                      : ""}
                   </p>
                 </div>
                 <p
@@ -130,40 +239,91 @@ export default async function DashboardPage() {
         </Card>
 
         <Card>
-          <div className="mb-4 flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-amber-600">
-              <Lightbulb className="h-[18px] w-[18px]" />
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-amber-600">
+                <Receipt className="h-[18px] w-[18px]" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Recent activity</h2>
+                <p className="text-sm text-muted">
+                  Latest sales, trades, and show buys
+                </p>
+              </div>
             </div>
-            <h2 className="text-lg font-semibold">Quick tips</h2>
           </div>
-          <ol className="space-y-3 text-sm text-muted">
-            {[
-              "At a show, use Show buys to log who paid and what goes shared vs collection.",
-              "Log every purchase under Inventory with cost and grade.",
-              "When you sell, record price and fees so profit is accurate.",
-              "Log partner cash in/out under Contributions.",
-              "Use Reports at month-end for P&L, settlement, and CSV export.",
-            ].map((tip, i) => (
-              <li key={tip} className="flex gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">
-                  {i + 1}
-                </span>
-                <span className="pt-0.5 leading-relaxed">{tip}</span>
-              </li>
-            ))}
-          </ol>
+
+          {activity.length === 0 ? (
+            <p className="text-sm text-muted">
+              No activity yet. Log a show buy, trade, or sale to see it here.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {activity.map((item) => (
+                <li key={item.id}>
+                  <Link
+                    href={item.href}
+                    className="flex items-start gap-3 rounded-xl border border-border/60 bg-card-muted/50 px-3 py-2.5 transition hover:border-primary/25 hover:bg-primary-soft/30"
+                  >
+                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-muted shadow-sm">
+                      {item.kind === "sale" ? (
+                        <ShoppingBag className="h-3.5 w-3.5" />
+                      ) : item.kind === "trade" ? (
+                        <ArrowLeftRight className="h-3.5 w-3.5" />
+                      ) : (
+                        <Package className="h-3.5 w-3.5" />
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-medium">
+                          {item.title}
+                        </span>
+                        <Badge
+                          variant={
+                            item.kind === "sale"
+                              ? "success"
+                              : item.kind === "trade"
+                                ? "indigo"
+                                : "muted"
+                          }
+                        >
+                          {item.kind === "sale"
+                            ? "Sale"
+                            : item.kind === "trade"
+                              ? "Trade"
+                              : "Buy"}
+                        </Badge>
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted">
+                        {item.detail}
+                      </span>
+                    </span>
+                    <ArrowRight className="mt-1 h-3.5 w-3.5 shrink-0 text-muted" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+
           <div className="mt-5 flex flex-wrap gap-4 border-t border-border pt-4">
             <Link
               href="/sales"
               className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
             >
-              Sales history <ArrowRight className="h-3.5 w-3.5" />
+              Sales <ArrowRight className="h-3.5 w-3.5" />
             </Link>
             <Link
-              href="/contributions"
+              href="/trades"
               className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
             >
-              Contributions <ArrowRight className="h-3.5 w-3.5" />
+              Trades <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+            <Link
+              href="/buy"
+              className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+            >
+              Show buys <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
         </Card>

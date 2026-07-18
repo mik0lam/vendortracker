@@ -39,7 +39,12 @@ export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isPublicRoute =
     pathname === "/login" || pathname.startsWith("/auth/");
+  const isCardSearchApi = pathname.startsWith("/api/cards/");
   const authorized = Boolean(user && isAllowedEmail(user.email));
+
+  if (!authorized && isCardSearchApi) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   if (!authorized && !isPublicRoute) {
     const loginUrl = request.nextUrl.clone();
