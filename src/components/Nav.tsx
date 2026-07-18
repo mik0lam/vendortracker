@@ -12,6 +12,7 @@ import {
   BarChart3,
   Sparkles,
   ShoppingBag,
+  ArrowLeftRight,
   LogOut,
 } from "lucide-react";
 
@@ -19,6 +20,7 @@ const links = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/buy", label: "Show buys", icon: ShoppingBag },
   { href: "/inventory", label: "Inventory", icon: Package },
+  { href: "/trades", label: "Trades", icon: ArrowLeftRight },
   { href: "/sales", label: "Sales", icon: Receipt },
   { href: "/expenses", label: "Expenses", icon: Wallet },
   { href: "/contributions", label: "Contributions", icon: HandCoins },

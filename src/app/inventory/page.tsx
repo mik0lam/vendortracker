@@ -1,9 +1,8 @@
-import Link from "next/link";
-import { PackageSearch } from "lucide-react";
+import { ExternalLink, PackageSearch } from "lucide-react";
 import { deleteInventoryItem } from "@/app/actions";
 import { InventoryForm } from "@/components/InventoryForm";
-import { SaleForm } from "@/components/SaleForm";
 import { DeleteButton } from "@/components/DeleteButton";
+import { CardThumb } from "@/components/CardThumb";
 import {
   Badge,
   Button,
@@ -21,25 +20,28 @@ import {
   Th,
 } from "@/components/ui";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { itemDisplayLabel } from "@/lib/item-label";
 import { prisma } from "@/lib/db";
+import { tcgplayerUrlFor } from "@/lib/tcgplayer";
+import { fetchMarketPricesForGroups } from "@/lib/tcgcsv";
 
 export const dynamic = "force-dynamic";
 
 export default async function InventoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; q?: string; sell?: string }>;
+  searchParams: Promise<{ status?: string; q?: string }>;
 }) {
   const params = await searchParams;
   const status = params.status ?? "in_stock";
   const q = (params.q ?? "").trim().toLowerCase();
-  const sellId = params.sell;
 
-  const items = await prisma.inventoryItem.findMany({
-    orderBy: { purchaseDate: "desc" },
-    include: { sale: true },
-  });
+  const [items, partners] = await Promise.all([
+    prisma.inventoryItem.findMany({
+      orderBy: { purchaseDate: "desc" },
+      include: { sale: true, paidBy: true },
+    }),
+    prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
+  ]);
 
   const filtered = items.filter((item) => {
     if (status !== "all" && item.status !== status) return false;
@@ -59,32 +61,30 @@ export default async function InventoryPage({
     return haystack.includes(q);
   });
 
-  const inStockOptions = items
-    .filter((i) => i.status === "in_stock")
+  const groupIds = filtered
+    .filter((i) => i.tcgplayerGroupId != null)
     .map((i) => ({
-      id: i.id,
-      name: i.name,
-      unitCost: i.unitCost,
-      label: `${itemDisplayLabel(i)} · cost ${formatCurrency(i.unitCost)}`,
+      groupId: i.tcgplayerGroupId as number,
+      language: i.language,
     }));
+  const livePrices = await fetchMarketPricesForGroups(groupIds);
 
   return (
     <div>
       <PageHeader
         title="Inventory"
-        description="Track each physical card with cost basis. Mark sold when it ships."
+        description="Track each physical card with cost basis. Record sales on the Sales page."
       />
 
-      <div className="grid gap-5 lg:grid-cols-2">
-        <Card hover>
-          <SectionHeader title="Add purchase" description="Log a new card purchase" />
-          <InventoryForm />
-        </Card>
-        <Card hover>
-          <SectionHeader title="Record sale" description="Sell from in-stock inventory" />
-          <SaleForm items={inStockOptions} defaultItemId={sellId} />
-        </Card>
-      </div>
+      <Card hover>
+        <SectionHeader title="Add purchase" description="Log a new card purchase" />
+        <InventoryForm
+          partners={partners.map((partner) => ({
+            id: partner.id,
+            name: partner.name,
+          }))}
+        />
+      </Card>
 
       <div className="mt-8">
         <SectionHeader
@@ -98,6 +98,8 @@ export default async function InventoryPage({
               <Select id="status" name="status" defaultValue={status}>
                 <option value="in_stock">In stock</option>
                 <option value="sold">Sold</option>
+                <option value="personal">Personal collection</option>
+                <option value="traded">Traded</option>
                 <option value="all">All</option>
               </Select>
             </Field>
@@ -125,71 +127,134 @@ export default async function InventoryPage({
                 <Th>Card</Th>
                 <Th>Details</Th>
                 <Th>Purchased</Th>
+                <Th>Paid by</Th>
                 <Th>Cost</Th>
+                <Th>TCG market</Th>
                 <Th>Status</Th>
                 <Th>Actions</Th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((item) => (
-                <TableRow key={item.id}>
-                  <Td>
-                    <div className="font-semibold">{item.name}</div>
-                    {item.setName ? (
-                      <div className="text-xs text-muted">{item.setName}</div>
-                    ) : null}
-                  </Td>
-                  <Td>
-                    {item.cardType === "graded" ? (
-                      <Badge variant="indigo">
-                        {item.gradeCompany} {item.grade}
+              {filtered.map((item) => {
+                const live =
+                  item.tcgplayerProductId != null
+                    ? livePrices.get(item.tcgplayerProductId)
+                    : undefined;
+                const market = live ?? item.marketPrice ?? null;
+                const cost = item.unitCost * item.quantity;
+                const delta =
+                  market != null ? market * item.quantity - cost : null;
+                return (
+                  <TableRow key={item.id}>
+                    <Td>
+                      <div className="flex items-center gap-3">
+                        <CardThumb src={item.imageUrl} alt={item.name} />
+                        <div>
+                          <div className="font-semibold">{item.name}</div>
+                          {item.setName ? (
+                            <div className="text-xs text-muted">{item.setName}</div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </Td>
+                    <Td>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {item.cardType === "graded" ? (
+                          <Badge variant="indigo">
+                            {item.gradeCompany} {item.grade}
+                          </Badge>
+                        ) : (
+                          <Badge>{item.condition ?? "Raw"}</Badge>
+                        )}
+                        {item.language === "ja" ? (
+                          <Badge variant="warning">JP</Badge>
+                        ) : null}
+                      </div>
+                      {item.certNumber ? (
+                        <div className="mt-1 text-xs text-muted">
+                          #{item.certNumber}
+                        </div>
+                      ) : null}
+                      {item.cardNumber ? (
+                        <div className="text-xs text-muted">
+                          Card #{item.cardNumber}
+                        </div>
+                      ) : null}
+                    </Td>
+                    <Td className="text-muted">
+                      {formatDate(item.purchaseDate)}
+                    </Td>
+                    <Td className="text-sm text-muted">
+                      {item.paidBy?.name ?? "Shared pool"}
+                    </Td>
+                    <Td className="font-medium tabular-nums">
+                      {formatCurrency(cost)}
+                    </Td>
+                    <Td>
+                      {market != null ? (
+                        <div>
+                          <div className="font-medium tabular-nums">
+                            {formatCurrency(market * item.quantity)}
+                          </div>
+                          {delta != null ? (
+                            <div
+                              className={`text-xs tabular-nums ${
+                                delta >= 0 ? "text-success" : "text-danger"
+                              }`}
+                            >
+                              {delta >= 0 ? "+" : ""}
+                              {formatCurrency(delta)} vs cost
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
+                    </Td>
+                    <Td>
+                      <Badge
+                        variant={
+                          item.status === "in_stock"
+                            ? "success"
+                            : item.status === "traded"
+                              ? "indigo"
+                              : "muted"
+                        }
+                      >
+                        {item.status === "in_stock"
+                          ? "In stock"
+                          : item.status === "sold"
+                            ? "Sold"
+                            : item.status === "traded"
+                              ? "Traded"
+                              : "Personal"}
                       </Badge>
-                    ) : (
-                      <Badge>{item.condition ?? "Raw"}</Badge>
-                    )}
-                    {item.certNumber ? (
-                      <div className="mt-1 text-xs text-muted">#{item.certNumber}</div>
-                    ) : null}
-                    {item.cardNumber ? (
-                      <div className="text-xs text-muted">Card #{item.cardNumber}</div>
-                    ) : null}
-                  </Td>
-                  <Td className="text-muted">{formatDate(item.purchaseDate)}</Td>
-                  <Td className="font-medium tabular-nums">
-                    {formatCurrency(item.unitCost * item.quantity)}
-                  </Td>
-                  <Td>
-                    <Badge variant={item.status === "in_stock" ? "success" : "muted"}>
-                      {item.status === "in_stock" ? "In stock" : "Sold"}
-                    </Badge>
-                  </Td>
-                  <Td>
-                    <div className="flex flex-wrap gap-2">
-                      {item.status === "in_stock" ? (
-                        <>
-                          <Link
-                            href={`/inventory?sell=${item.id}&status=in_stock`}
-                            className="inline-flex items-center rounded-lg border border-border bg-white px-2.5 py-1.5 text-xs font-medium shadow-sm transition hover:border-primary/30 hover:bg-primary-soft/50 hover:text-primary"
-                          >
-                            Mark sold
-                          </Link>
+                    </Td>
+                    <Td>
+                      <div className="flex flex-wrap gap-2">
+                        <a
+                          href={tcgplayerUrlFor(item)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 rounded-lg border border-border bg-white px-2.5 py-1.5 text-xs font-medium shadow-sm transition hover:border-primary/30 hover:bg-primary-soft/50 hover:text-primary"
+                        >
+                          TCGplayer
+                          <ExternalLink
+                            className="h-3 w-3"
+                            aria-hidden="true"
+                          />
+                        </a>
+                        {item.status === "in_stock" ? (
                           <DeleteButton
                             confirmMessage={`Delete "${item.name}" from inventory?`}
                             action={deleteInventoryItem.bind(null, item.id)}
                           />
-                        </>
-                      ) : (
-                        <Link
-                          href="/sales"
-                          className="text-xs font-medium text-primary hover:underline"
-                        >
-                          View sales
-                        </Link>
-                      )}
-                    </div>
-                  </Td>
-                </TableRow>
-              ))}
+                        ) : null}
+                      </div>
+                    </Td>
+                  </TableRow>
+                );
+              })}
             </tbody>
           </Table>
         )}

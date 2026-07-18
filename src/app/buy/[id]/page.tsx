@@ -1,9 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Users } from "lucide-react";
-import { deleteBuyLineItem, deleteBuySession } from "@/app/actions";
+import { ArrowLeft, ArrowLeftRight, Users } from "lucide-react";
+import {
+  deleteBuyLineItem,
+  deleteBuySession,
+  deleteTrade,
+} from "@/app/actions";
 import { BuyLineForm } from "@/components/BuyLineForm";
+import { TradeForm } from "@/components/TradeForm";
 import { DeleteButton } from "@/components/DeleteButton";
+import { CardThumb } from "@/components/CardThumb";
 import {
   Badge,
   Card,
@@ -33,7 +39,7 @@ export default async function BuySessionPage({
 }) {
   const { id } = await params;
 
-  const [session, partners] = await Promise.all([
+  const [session, partners, inStock] = await Promise.all([
     prisma.buySession.findUnique({
       where: { id },
       include: {
@@ -41,12 +47,26 @@ export default async function BuySessionPage({
           include: {
             paidBy: true,
             collectionPartner: true,
+            inventoryItem: true,
+          },
+          orderBy: { createdAt: "desc" },
+        },
+        trades: {
+          include: {
+            cashPaidBy: true,
+            cashReceivedBy: true,
+            outItems: { include: { inventoryItem: true } },
+            inItems: { include: { inventoryItem: true } },
           },
           orderBy: { createdAt: "desc" },
         },
       },
     }),
     prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.inventoryItem.findMany({
+      where: { status: "in_stock" },
+      orderBy: { purchaseDate: "desc" },
+    }),
   ]);
 
   if (!session) notFound();
@@ -179,6 +199,128 @@ export default async function BuySessionPage({
           partners={partners.map((p) => ({ id: p.id, name: p.name }))}
         />
       </Card>
+
+      <Card hover className="mb-8">
+        <SectionHeader
+          title="Record a trade"
+          description="Trade any in-stock cards; received cards stay attached to this show and enter shared inventory"
+        />
+        <TradeForm
+          buySessionId={session.id}
+          defaultDate={session.date}
+          inStock={inStock.map((item) => ({
+            id: item.id,
+            name: item.name,
+            setName: item.setName,
+            cardNumber: item.cardNumber,
+            unitCost: item.unitCost,
+            quantity: item.quantity,
+            imageUrl: item.imageUrl,
+            condition: item.condition,
+            gradeCompany: item.gradeCompany,
+            grade: item.grade,
+            cardType: item.cardType,
+          }))}
+          partners={partners.map((partner) => ({
+            id: partner.id,
+            name: partner.name,
+          }))}
+        />
+      </Card>
+
+      <SectionHeader
+        title="Trades this show"
+        description={`${session.trades.length} trade${session.trades.length === 1 ? "" : "s"}`}
+      />
+
+      {session.trades.length === 0 ? (
+        <EmptyState
+          message="No trades recorded for this show yet."
+          icon={<ArrowLeftRight className="h-5 w-5" />}
+        />
+      ) : (
+        <Table>
+          <thead>
+            <tr>
+              <Th>Date</Th>
+              <Th>Gave</Th>
+              <Th>Received</Th>
+              <Th>Cash</Th>
+              <Th></Th>
+            </tr>
+          </thead>
+          <tbody>
+            {session.trades.map((trade) => (
+              <TableRow key={trade.id}>
+                <Td className="whitespace-nowrap text-muted">
+                  {formatDate(trade.date)}
+                </Td>
+                <Td>
+                  <ul className="space-y-1.5">
+                    {trade.outItems.map((row) => (
+                      <li key={row.id} className="flex items-center gap-2">
+                        <CardThumb
+                          src={row.inventoryItem.imageUrl}
+                          alt={row.inventoryItem.name}
+                        />
+                        <span className="text-sm font-medium">
+                          {row.inventoryItem.name}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </Td>
+                <Td>
+                  <ul className="space-y-1.5">
+                    {trade.inItems.map((row) => (
+                      <li key={row.id} className="flex items-center gap-2">
+                        <CardThumb
+                          src={row.inventoryItem.imageUrl}
+                          alt={row.inventoryItem.name}
+                        />
+                        <span>
+                          <span className="block text-sm font-medium">
+                            {row.inventoryItem.name}
+                          </span>
+                          <span className="block text-xs text-muted">
+                            basis {formatCurrency(row.allocatedCost)}
+                          </span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </Td>
+                <Td className="text-sm text-muted">
+                  {trade.cashPaid > 0 ? (
+                    <div>
+                      Paid {formatCurrency(trade.cashPaid)} (
+                      {trade.cashPaidBy?.name ?? "Shared"})
+                    </div>
+                  ) : null}
+                  {trade.cashReceived > 0 ? (
+                    <div>
+                      Received {formatCurrency(trade.cashReceived)} (
+                      {trade.cashReceivedBy?.name ?? "Shared"})
+                    </div>
+                  ) : null}
+                  {trade.cashPaid === 0 && trade.cashReceived === 0
+                    ? "No cash"
+                    : null}
+                </Td>
+                <Td>
+                  <DeleteButton
+                    label="Reverse"
+                    confirmMessage="Reverse this trade? Incoming cards will be removed and outgoing cards restored."
+                    action={deleteTrade.bind(null, trade.id)}
+                  />
+                </Td>
+              </TableRow>
+            ))}
+          </tbody>
+        </Table>
+      )}
+
+      <div className="mb-8" />
 
       <SectionHeader
         title="Purchases"

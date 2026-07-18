@@ -32,7 +32,7 @@ export default async function BuyPage() {
     <div>
       <PageHeader
         title="Show buys"
-        description="Track cards bought at a show — who paid, what goes to shared inventory, and what stays in someone's collection."
+        description="Track cards bought and traded at a show, including who paid and what enters shared inventory."
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2">

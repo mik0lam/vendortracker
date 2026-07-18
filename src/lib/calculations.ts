@@ -1,10 +1,25 @@
-import type { Contribution, Expense, InventoryItem, Partner, Sale } from "@prisma/client";
+import type {
+  CollectionWithdrawal,
+  Contribution,
+  Expense,
+  InventoryItem,
+  Partner,
+  Sale,
+  Trade,
+} from "@prisma/client";
 
-export type SaleWithItem = Sale & { inventoryItem: InventoryItem };
+export type SaleWithItem = Sale & {
+  inventoryItem: InventoryItem;
+  receivedBy?: Partner | null;
+};
+
+export function saleNetProceeds(sale: Pick<Sale, "salePrice" | "platformFees" | "shippingCost">): number {
+  return sale.salePrice - sale.platformFees - sale.shippingCost;
+}
 
 export function saleNetProfit(sale: SaleWithItem): number {
   const cost = sale.inventoryItem.unitCost * sale.inventoryItem.quantity;
-  return sale.salePrice - cost - sale.platformFees - sale.shippingCost;
+  return saleNetProceeds(sale) - cost;
 }
 
 export function saleGrossProfit(sale: SaleWithItem): number {
@@ -18,23 +33,33 @@ export function inventoryValueAtCost(items: InventoryItem[]): number {
     .reduce((sum, i) => sum + i.unitCost * i.quantity, 0);
 }
 
+/**
+ * Cash sitting in the shared business pool.
+ * Sale proceeds count only when receivedByPartnerId is null (shared pool).
+ * Traded-away cards are excluded from purchase outflow (basis moves to incoming).
+ * Partner-received trade cash is subtracted so lower incoming costs do not inflate pool cash.
+ */
 export function cashInPool(
   contributions: Contribution[],
   sales: SaleWithItem[],
   expenses: Expense[],
-  inventory: InventoryItem[]
+  inventory: InventoryItem[],
+  trades: Pick<Trade, "cashReceived" | "cashReceivedByPartnerId">[] = []
 ): number {
   const contributed = contributions.reduce((sum, c) => sum + c.amount, 0);
-  const purchaseOutflow = inventory.reduce(
-    (sum, i) => sum + i.unitCost * i.quantity,
-    0
-  );
-  const saleInflow = sales.reduce(
-    (sum, s) => sum + s.salePrice - s.platformFees - s.shippingCost,
-    0
-  );
+  const purchaseOutflow = inventory
+    .filter((i) => i.status !== "traded")
+    .reduce((sum, i) => sum + i.unitCost * i.quantity, 0);
+  const saleInflow = sales
+    .filter((s) => !s.receivedByPartnerId)
+    .reduce((sum, s) => sum + saleNetProceeds(s), 0);
   const expenseOutflow = expenses.reduce((sum, e) => sum + e.amount, 0);
-  return contributed - purchaseOutflow + saleInflow - expenseOutflow;
+  const partnerTradeCashReceived = trades
+    .filter((t) => t.cashReceivedByPartnerId && t.cashReceived > 0)
+    .reduce((sum, t) => sum + t.cashReceived, 0);
+  return (
+    contributed - purchaseOutflow + saleInflow - expenseOutflow - partnerTradeCashReceived
+  );
 }
 
 export type PartnerBalance = {
@@ -43,6 +68,9 @@ export type PartnerBalance = {
   withdrawn: number;
   profitShare: number;
   expenseShare: number;
+  salesReceived: number;
+  tradeCashReceived: number;
+  personalCollectionTaken: number;
   balance: number;
 };
 
@@ -56,25 +84,17 @@ export type SettlementResult = {
 /**
  * Partner settlement:
  * Credits: capital contributed + share of net profit from sales
- * Debits: share of expenses + withdrawals (negative contributions)
- * Balance = credits - debits (withdrawals already reduce contributed)
- *
- * For equal split fairness: each partner should end with the same
- * "equity" relative to their capital. We compute each partner's
- * economic position as:
- *   contributed_net + profit_share - expense_share
- * Then compare to equal ownership of the pool.
- *
- * Simpler readable model from plan:
- * - Credits: capital contributed + 50% of net profit
- * - Debits: 50% of expenses + withdrawals
- * - Balance shows who is ahead; settlement equalizes the two balances.
+ * Debits: share of expenses + withdrawals + personally received sale proceeds
+ * (personally held cash is outside the pool, so it reduces that partner's
+ * settlement claim relative to equity).
  */
 export function computePartnerSettlement(
   partners: Partner[],
   contributions: Contribution[],
   sales: SaleWithItem[],
-  expenses: Expense[]
+  expenses: Expense[],
+  collectionWithdrawals: CollectionWithdrawal[] = [],
+  trades: Pick<Trade, "cashReceived" | "cashReceivedByPartnerId">[] = []
 ): SettlementResult {
   const totalNetProfit = sales.reduce((sum, s) => sum + saleNetProfit(s), 0);
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
@@ -91,7 +111,23 @@ export function computePartnerSettlement(
     const share = partner.splitPercent / splitTotal;
     const profitShare = totalNetProfit * share;
     const expenseShare = totalExpenses * share;
-    const balance = contributed - withdrawn + profitShare - expenseShare;
+    const salesReceived = sales
+      .filter((s) => s.receivedByPartnerId === partner.id)
+      .reduce((sum, s) => sum + saleNetProceeds(s), 0);
+    const tradeCashReceived = trades
+      .filter((t) => t.cashReceivedByPartnerId === partner.id)
+      .reduce((sum, t) => sum + t.cashReceived, 0);
+    const personalCollectionTaken = collectionWithdrawals
+      .filter((withdrawal) => withdrawal.takenByPartnerId === partner.id)
+      .reduce((sum, withdrawal) => sum + withdrawal.costBasis, 0);
+    const balance =
+      contributed -
+      withdrawn +
+      profitShare -
+      expenseShare -
+      salesReceived -
+      tradeCashReceived -
+      personalCollectionTaken;
 
     return {
       partner,
@@ -99,6 +135,9 @@ export function computePartnerSettlement(
       withdrawn,
       profitShare,
       expenseShare,
+      salesReceived,
+      tradeCashReceived,
+      personalCollectionTaken,
       balance,
     };
   });
@@ -203,4 +242,9 @@ export function monthToDateProfit(
   const month = now.getMonth() + 1;
   const pnl = computeMonthlyPnL(year, month, sales, expenses, []);
   return pnl.grossProfit - pnl.totalExpenses;
+}
+
+export function receiverLabel(sale: SaleWithItem): string {
+  if (!sale.receivedByPartnerId) return "Shared pool";
+  return sale.receivedBy?.name ?? "Partner";
 }
