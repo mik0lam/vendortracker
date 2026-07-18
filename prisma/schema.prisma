@@ -1,0 +1,107 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Partner {
+  id                 String         @id @default(cuid())
+  name               String
+  splitPercent       Float          @default(50)
+  createdAt          DateTime       @default(now())
+  contributions      Contribution[]
+  paidBuyItems       BuyLineItem[]  @relation("PaidBuys")
+  collectionBuyItems BuyLineItem[]  @relation("CollectionBuys")
+}
+
+model InventoryItem {
+  id           String       @id @default(cuid())
+  name         String
+  setName      String?
+  cardNumber   String?
+  cardType     String       @default("raw") // raw | graded
+  condition    String? // NM, LP, MP, HP, DMG
+  gradeCompany String? // PSA, BGS, CGC, other
+  grade        String?
+  certNumber   String?
+  purchaseDate DateTime
+  unitCost     Float
+  quantity     Int          @default(1)
+  status       String       @default("in_stock") // in_stock | sold
+  notes        String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  sale         Sale?
+  buyLineItem  BuyLineItem?
+}
+
+model Sale {
+  id              String        @id @default(cuid())
+  inventoryItemId String        @unique
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  saleDate        DateTime
+  salePrice       Float
+  platformFees    Float         @default(0)
+  shippingCost    Float         @default(0)
+  notes           String?
+  createdAt       DateTime      @default(now())
+}
+
+model Expense {
+  id        String   @id @default(cuid())
+  date      DateTime
+  category  String
+  amount    Float
+  note      String?
+  createdAt DateTime @default(now())
+}
+
+model Contribution {
+  id          String       @id @default(cuid())
+  partnerId   String
+  partner     Partner      @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  date        DateTime
+  amount      Float // positive = contribution in, negative = withdrawal
+  note        String?
+  createdAt   DateTime     @default(now())
+  buyLineItem BuyLineItem?
+}
+
+model BuySession {
+  id        String        @id @default(cuid())
+  date      DateTime
+  name      String
+  location  String?
+  notes     String?
+  createdAt DateTime      @default(now())
+  items     BuyLineItem[]
+}
+
+model BuyLineItem {
+  id                  String         @id @default(cuid())
+  buySessionId        String
+  buySession          BuySession     @relation(fields: [buySessionId], references: [id], onDelete: Cascade)
+  name                String
+  setName             String?
+  cardNumber          String?
+  cardType            String         @default("raw")
+  condition           String?
+  gradeCompany        String?
+  grade               String?
+  certNumber          String?
+  unitCost            Float
+  quantity            Int            @default(1)
+  paidByPartnerId     String
+  paidBy              Partner        @relation("PaidBuys", fields: [paidByPartnerId], references: [id])
+  allocation          String // shared | personal
+  collectionPartnerId String?
+  collectionPartner   Partner?       @relation("CollectionBuys", fields: [collectionPartnerId], references: [id])
+  inventoryItemId     String?        @unique
+  inventoryItem       InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+  contributionId      String?        @unique
+  contribution        Contribution?  @relation(fields: [contributionId], references: [id], onDelete: SetNull)
+  notes               String?
+  createdAt           DateTime       @default(now())
+}

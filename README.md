@@ -1,36 +1,106 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Pokemon Vendor Tracker
 
-## Getting Started
+Local-first web app for a shared-pool Pokemon singles / graded card business. Track inventory, sales, expenses, partner contributions, monthly P&L, and 50/50 settlement — with CSV export for taxes.
 
-First, run the development server:
+## Requirements
+
+- Node.js 20+ (22 recommended)
+- npm
+
+## Setup
 
 ```bash
+npm install
+npx prisma migrate dev
+npm run db:seed
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Default partners are seeded as **Michael** and **Dillon** (50/50). You can rename them under **Contributions** if needed.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Day-to-day use
 
-## Learn More
+1. **Buy a card** → Inventory → Add purchase (cost, raw condition or grade/cert)
+2. **At a card show** → Show buys → Start show day → log who paid and shared vs collection
+3. **Sell a card** → Inventory or Sales → Record sale (price, fees, shipping)
+4. **Put money in / take money out** → Contributions
+5. **Business costs** → Expenses (grading, supplies, show fees, etc.)
+6. **Month end** → Reports → review P&L + settlement → export CSV
 
-To learn more about Next.js, take a look at the following resources:
+## Profit math
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+net profit = sale price − purchase cost − platform fees − shipping
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Partner settlement uses each partner’s split (default 50%):
 
-## Deploy on Vercel
+- Credits: capital contributed + share of net profit
+- Debits: share of expenses + withdrawals
+- Settlement message tells you who owes whom to even up
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Database & backups
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+SQLite file location:
+
+```
+prisma/dev.db
+```
+
+To back up: stop the app (or copy while closed if possible) and copy `prisma/dev.db` somewhere safe (cloud drive, USB, etc.).
+
+To restore: replace `prisma/dev.db` with your backup, then run `npm run dev` again.
+
+Useful commands:
+
+```bash
+npm run db:migrate   # apply schema changes
+npm run db:seed      # seed partners if empty
+npx prisma studio    # browse/edit data in a GUI
+```
+
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start local dev server |
+| `npm run build` | Production build |
+| `npm run start` | Run production server |
+| `npm run db:seed` | Seed default partners |
+
+## Accounts and cloud access
+
+Supabase invite-only authentication is implemented. Until the Supabase
+environment variables are present, authentication is bypassed in local
+development so the existing SQLite app remains usable.
+
+To activate Michael and Dillon's accounts:
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. In **Project Settings → API**, copy the project URL and publishable key.
+3. Copy `.env.example` to `.env.local` and fill in:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+   - `ALLOWED_SIGNUP_EMAILS` with Michael and Dillon's real emails
+4. In **Authentication → URL Configuration**, add
+   `http://localhost:3000/auth/callback` as a redirect URL.
+5. Restart `npm run dev`, open `/login`, and create both accounts.
+
+Only emails in `ALLOWED_SIGNUP_EMAILS` can register or access the app. Both
+accounts enter the same shared Michael & Dillon workspace.
+
+For access outside your home network, the remaining deployment step is:
+
+1. Move the SQLite data to Supabase Postgres.
+2. Add the pooled and direct database connection strings to Vercel.
+3. Deploy the Next.js app to Vercel and add its URL to Supabase Auth redirects.
+
+Do not deploy with SQLite: Vercel's filesystem is not persistent.
+
+## Tech stack
+
+- Next.js (App Router) + TypeScript
+- Prisma + SQLite (`better-sqlite3` adapter)
+- Tailwind CSS

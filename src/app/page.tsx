@@ -1,65 +1,173 @@
-import Image from "next/image";
+import {
+  Banknote,
+  Package,
+  TrendingUp,
+  ShoppingBag,
+  Users,
+  Lightbulb,
+  ArrowRight,
+} from "lucide-react";
+import Link from "next/link";
+import {
+  cashInPool,
+  computePartnerSettlement,
+  inventoryValueAtCost,
+  monthToDateProfit,
+} from "@/lib/calculations";
+import { formatCurrency } from "@/lib/format";
+import { prisma } from "@/lib/db";
+import {
+  Card,
+  LinkButton,
+  PageHeader,
+  StatCard,
+} from "@/components/ui";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function DashboardPage() {
+  const [partners, inventory, sales, expenses, contributions] =
+    await Promise.all([
+      prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
+      prisma.inventoryItem.findMany(),
+      prisma.sale.findMany({ include: { inventoryItem: true } }),
+      prisma.expense.findMany(),
+      prisma.contribution.findMany(),
+    ]);
+
+  const inStock = inventory.filter((i) => i.status === "in_stock");
+  const cash = cashInPool(contributions, sales, expenses, inventory);
+  const invValue = inventoryValueAtCost(inventory);
+  const mtd = monthToDateProfit(sales, expenses);
+  const settlement = computePartnerSettlement(
+    partners,
+    contributions,
+    sales,
+    expenses
+  );
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div>
+      <PageHeader
+        title="Dashboard"
+        description="Shared pool snapshot for your Pokemon card business."
+        actions={
+          <>
+            <LinkButton href="/buy">Show buys</LinkButton>
+            <LinkButton href="/inventory">Add purchase</LinkButton>
+            <LinkButton href="/reports" variant="secondary">
+              View reports
+            </LinkButton>
+          </>
+        }
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Cash in pool"
+          value={formatCurrency(cash)}
+          hint="Contributions − purchases + net sales − expenses"
+          tone="indigo"
+          icon={<Banknote className="h-[18px] w-[18px]" />}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+        <StatCard
+          label="Inventory at cost"
+          value={formatCurrency(invValue)}
+          hint={`${inStock.length} cards in stock`}
+          tone="emerald"
+          icon={<Package className="h-[18px] w-[18px]" />}
+        />
+        <StatCard
+          label="MTD net profit"
+          value={formatCurrency(mtd)}
+          hint="Gross profit − expenses this month"
+          tone={mtd >= 0 ? "amber" : "violet"}
+          icon={<TrendingUp className="h-[18px] w-[18px]" />}
+        />
+        <StatCard
+          label="Cards sold"
+          value={String(sales.length)}
+          hint={`${inventory.length} total tracked`}
+          tone="violet"
+          icon={<ShoppingBag className="h-[18px] w-[18px]" />}
+        />
+      </div>
+
+      <div className="mt-6 grid gap-5 lg:grid-cols-2">
+        <Card>
+          <div className="mb-4 flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary-soft text-primary">
+              <Users className="h-[18px] w-[18px]" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">Partner balances</h2>
+              <p className="text-sm text-muted">{settlement.settlementMessage}</p>
+            </div>
+          </div>
+          <ul className="space-y-3">
+            {settlement.partners.map((p) => (
+              <li
+                key={p.partner.id}
+                className="flex items-center justify-between rounded-xl border border-border/60 bg-card-muted px-4 py-3"
+              >
+                <div>
+                  <p className="font-semibold">{p.partner.name}</p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    Contributed {formatCurrency(p.contributed)} · Profit share{" "}
+                    {formatCurrency(p.profitShare)}
+                  </p>
+                </div>
+                <p
+                  className={`text-lg font-bold tabular-nums ${
+                    p.balance >= 0 ? "text-success" : "text-danger"
+                  }`}
+                >
+                  {formatCurrency(p.balance)}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </Card>
+
+        <Card>
+          <div className="mb-4 flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-amber-600">
+              <Lightbulb className="h-[18px] w-[18px]" />
+            </div>
+            <h2 className="text-lg font-semibold">Quick tips</h2>
+          </div>
+          <ol className="space-y-3 text-sm text-muted">
+            {[
+              "At a show, use Show buys to log who paid and what goes shared vs collection.",
+              "Log every purchase under Inventory with cost and grade.",
+              "When you sell, record price and fees so profit is accurate.",
+              "Log partner cash in/out under Contributions.",
+              "Use Reports at month-end for P&L, settlement, and CSV export.",
+            ].map((tip, i) => (
+              <li key={tip} className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">
+                  {i + 1}
+                </span>
+                <span className="pt-0.5 leading-relaxed">{tip}</span>
+              </li>
+            ))}
+          </ol>
+          <div className="mt-5 flex flex-wrap gap-4 border-t border-border pt-4">
+            <Link
+              href="/sales"
+              className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              Sales history <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+            <Link
+              href="/contributions"
+              className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
             >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+              Contributions <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }
