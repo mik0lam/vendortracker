@@ -17,13 +17,17 @@ import {
 } from "@/components/ui";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { prisma } from "@/lib/db";
+import { getOwnerId } from "@/lib/auth";
+import { getPartners } from "@/lib/partners";
 
 export const dynamic = "force-dynamic";
 
 export default async function ContributionsPage() {
+  const ownerId = await getOwnerId();
   const [partners, contributions] = await Promise.all([
-    prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
+    getPartners(ownerId),
     prisma.contribution.findMany({
+      where: { ownerId },
       include: { partner: true },
       orderBy: { date: "desc" },
     }),

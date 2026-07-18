@@ -72,24 +72,24 @@ npx prisma studio    # browse/edit data in a GUI
 
 ## Accounts and cloud access
 
-Supabase invite-only authentication is implemented. Until the Supabase
-environment variables are present, authentication is bypassed in local
-development so the existing SQLite app remains usable.
+Supabase authentication is implemented. Until the Supabase environment
+variables are present, authentication is bypassed in local development so the
+app remains usable.
 
-To activate Michael and Dillon's accounts:
+To activate accounts:
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. In **Project Settings → API**, copy the project URL and publishable key.
 3. Copy `.env.example` to `.env.local` and fill in:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-   - `ALLOWED_SIGNUP_EMAILS` with Michael and Dillon's real emails
 4. In **Authentication → URL Configuration**, add
    `http://localhost:3000/auth/callback` as a redirect URL.
-5. Restart `npm run dev`, open `/login`, and create both accounts.
+5. Restart `npm run dev`, open `/login`, and sign up.
 
-Only emails in `ALLOWED_SIGNUP_EMAILS` can register or access the app. Both
-accounts enter the same shared Michael & Dillon workspace.
+Anyone can create an account. Each account has its own private workspace —
+inventory, sales, trades, expenses, and partners are all scoped to the
+signed-in account.
 
 For access outside your home network, the remaining deployment step is:
 

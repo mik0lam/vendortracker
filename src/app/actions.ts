@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireOwnerId } from "@/lib/auth";
 import {
   cardFieldsToInventoryData,
   parseCardFields,
@@ -33,15 +33,15 @@ function revalidateBuy(sessionId?: string) {
 }
 
 export async function createInventoryItem(formData: FormData) {
-  await requireUser();
+  const ownerId = await requireOwnerId();
   const fields = parseCardFields(formData);
   const paidByRaw = String(formData.get("paidByPartnerId") ?? "").trim();
   const paidByPartnerId = paidByRaw || null;
   const purchaseDate = parseDate(formData.get("purchaseDate"));
 
   if (paidByPartnerId) {
-    const partner = await prisma.partner.findUnique({
-      where: { id: paidByPartnerId },
+    const partner = await prisma.partner.findFirst({
+      where: { id: paidByPartnerId, ownerId },
     });
     if (!partner) throw new Error("Select who paid for the card");
   }
@@ -50,6 +50,7 @@ export async function createInventoryItem(formData: FormData) {
     const contribution = paidByPartnerId
       ? await tx.contribution.create({
           data: {
+            ownerId,
             partnerId: paidByPartnerId,
             date: purchaseDate,
             amount: fields.unitCost * fields.quantity,
@@ -61,6 +62,7 @@ export async function createInventoryItem(formData: FormData) {
     await tx.inventoryItem.create({
       data: {
         ...cardFieldsToInventoryData(fields, purchaseDate),
+        ownerId,
         paidByPartnerId,
         purchaseContributionId: contribution?.id ?? null,
       },
@@ -74,9 +76,9 @@ export async function createInventoryItem(formData: FormData) {
 }
 
 export async function deleteInventoryItem(id: string) {
-  await requireUser();
-  const item = await prisma.inventoryItem.findUnique({
-    where: { id },
+  const ownerId = await requireOwnerId();
+  const item = await prisma.inventoryItem.findFirst({
+    where: { id, ownerId },
     include: {
       buyLineItem: true,
       purchaseContribution: true,
@@ -132,12 +134,12 @@ export async function deleteInventoryItem(id: string) {
 }
 
 export async function createSale(formData: FormData) {
-  await requireUser();
+  const ownerId = await requireOwnerId();
   const inventoryItemId = String(formData.get("inventoryItemId") ?? "");
   if (!inventoryItemId) throw new Error("Select an inventory item");
 
-  const item = await prisma.inventoryItem.findUnique({
-    where: { id: inventoryItemId },
+  const item = await prisma.inventoryItem.findFirst({
+    where: { id: inventoryItemId, ownerId },
   });
   if (!item) throw new Error("Item not found");
   if (item.status !== "in_stock") throw new Error("Item is already sold");
@@ -149,8 +151,8 @@ export async function createSale(formData: FormData) {
   const receivedByPartnerId = receivedRaw || null;
 
   if (receivedByPartnerId) {
-    const partner = await prisma.partner.findUnique({
-      where: { id: receivedByPartnerId },
+    const partner = await prisma.partner.findFirst({
+      where: { id: receivedByPartnerId, ownerId },
     });
     if (!partner) throw new Error("Select who received payment");
   }
@@ -158,6 +160,7 @@ export async function createSale(formData: FormData) {
   await prisma.$transaction([
     prisma.sale.create({
       data: {
+        ownerId,
         inventoryItemId,
         saleDate: parseDate(formData.get("saleDate")),
         salePrice,
@@ -180,8 +183,8 @@ export async function createSale(formData: FormData) {
 }
 
 export async function deleteSale(id: string) {
-  await requireUser();
-  const sale = await prisma.sale.findUnique({ where: { id } });
+  const ownerId = await requireOwnerId();
+  const sale = await prisma.sale.findFirst({ where: { id, ownerId } });
   if (!sale) throw new Error("Sale not found");
 
   await prisma.$transaction([
@@ -199,15 +202,15 @@ export async function deleteSale(id: string) {
 }
 
 export async function createCollectionWithdrawal(formData: FormData) {
-  await requireUser();
+  const ownerId = await requireOwnerId();
   const inventoryItemId = String(formData.get("inventoryItemId") ?? "");
   const takenByPartnerId = String(formData.get("takenByPartnerId") ?? "");
   if (!inventoryItemId) throw new Error("Select an inventory item");
   if (!takenByPartnerId) throw new Error("Select who is taking the card");
 
   const [item, partner] = await Promise.all([
-    prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } }),
-    prisma.partner.findUnique({ where: { id: takenByPartnerId } }),
+    prisma.inventoryItem.findFirst({ where: { id: inventoryItemId, ownerId } }),
+    prisma.partner.findFirst({ where: { id: takenByPartnerId, ownerId } }),
   ]);
   if (!item) throw new Error("Item not found");
   if (item.status !== "in_stock") {
@@ -219,6 +222,7 @@ export async function createCollectionWithdrawal(formData: FormData) {
   await prisma.$transaction([
     prisma.collectionWithdrawal.create({
       data: {
+        ownerId,
         inventoryItemId,
         takenByPartnerId,
         date: parseDate(formData.get("date")),
@@ -239,9 +243,9 @@ export async function createCollectionWithdrawal(formData: FormData) {
 }
 
 export async function deleteCollectionWithdrawal(id: string) {
-  await requireUser();
-  const withdrawal = await prisma.collectionWithdrawal.findUnique({
-    where: { id },
+  const ownerId = await requireOwnerId();
+  const withdrawal = await prisma.collectionWithdrawal.findFirst({
+    where: { id, ownerId },
   });
   if (!withdrawal) throw new Error("Collection withdrawal not found");
 
@@ -260,7 +264,7 @@ export async function deleteCollectionWithdrawal(id: string) {
 }
 
 export async function createExpense(formData: FormData) {
-  await requireUser();
+  const ownerId = await requireOwnerId();
   const category = String(formData.get("category") ?? "").trim();
   if (!category) throw new Error("Category is required");
   const amount = parseMoney(formData.get("amount"));
@@ -268,6 +272,7 @@ export async function createExpense(formData: FormData) {
 
   await prisma.expense.create({
     data: {
+      ownerId,
       date: parseDate(formData.get("date")),
       category,
       amount,
@@ -281,17 +286,25 @@ export async function createExpense(formData: FormData) {
 }
 
 export async function deleteExpense(id: string) {
-  await requireUser();
-  await prisma.expense.delete({ where: { id } });
+  const ownerId = await requireOwnerId();
+  const { count } = await prisma.expense.deleteMany({
+    where: { id, ownerId },
+  });
+  if (count === 0) throw new Error("Expense not found");
   revalidatePath("/expenses");
   revalidatePath("/");
   revalidatePath("/reports");
 }
 
 export async function createContribution(formData: FormData) {
-  await requireUser();
+  const ownerId = await requireOwnerId();
   const partnerId = String(formData.get("partnerId") ?? "");
   if (!partnerId) throw new Error("Partner is required");
+
+  const partner = await prisma.partner.findFirst({
+    where: { id: partnerId, ownerId },
+  });
+  if (!partner) throw new Error("Partner not found");
 
   const amount = parseMoney(formData.get("amount"));
   if (amount === 0) throw new Error("Amount cannot be zero");
@@ -301,6 +314,7 @@ export async function createContribution(formData: FormData) {
 
   await prisma.contribution.create({
     data: {
+      ownerId,
       partnerId,
       date: parseDate(formData.get("date")),
       amount: signedAmount,
@@ -314,7 +328,11 @@ export async function createContribution(formData: FormData) {
 }
 
 export async function deleteContribution(id: string) {
-  await requireUser();
+  const ownerId = await requireOwnerId();
+  const contribution = await prisma.contribution.findFirst({
+    where: { id, ownerId },
+  });
+  if (!contribution) throw new Error("Contribution not found");
   const linkedBuy = await prisma.buyLineItem.findFirst({
     where: { contributionId: id },
   });
@@ -346,15 +364,16 @@ export async function deleteContribution(id: string) {
 }
 
 export async function updatePartnerName(formData: FormData) {
-  await requireUser();
+  const ownerId = await requireOwnerId();
   const id = String(formData.get("id") ?? "");
   const name = String(formData.get("name") ?? "").trim();
   if (!id || !name) throw new Error("Partner name is required");
 
-  await prisma.partner.update({
-    where: { id },
+  const { count } = await prisma.partner.updateMany({
+    where: { id, ownerId },
     data: { name },
   });
+  if (count === 0) throw new Error("Partner not found");
 
   revalidatePath("/contributions");
   revalidatePath("/buy");
@@ -363,12 +382,13 @@ export async function updatePartnerName(formData: FormData) {
 }
 
 export async function createBuySession(formData: FormData) {
-  await requireUser();
+  const ownerId = await requireOwnerId();
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("Show name is required");
 
   const session = await prisma.buySession.create({
     data: {
+      ownerId,
       name,
       date: parseDate(formData.get("date")),
       location: String(formData.get("location") ?? "").trim() || null,
@@ -381,9 +401,9 @@ export async function createBuySession(formData: FormData) {
 }
 
 export async function deleteBuySession(id: string) {
-  await requireUser();
-  const session = await prisma.buySession.findUnique({
-    where: { id },
+  const ownerId = await requireOwnerId();
+  const session = await prisma.buySession.findFirst({
+    where: { id, ownerId },
     include: {
       trades: { select: { id: true } },
       items: {
@@ -423,17 +443,22 @@ export async function deleteBuySession(id: string) {
 }
 
 export async function addBuyLineItem(formData: FormData) {
-  await requireUser();
+  const ownerId = await requireOwnerId();
   const buySessionId = String(formData.get("buySessionId") ?? "");
   if (!buySessionId) throw new Error("Session is required");
 
-  const session = await prisma.buySession.findUnique({
-    where: { id: buySessionId },
+  const session = await prisma.buySession.findFirst({
+    where: { id: buySessionId, ownerId },
   });
   if (!session) throw new Error("Show day not found");
 
   const paidByPartnerId = String(formData.get("paidByPartnerId") ?? "");
   if (!paidByPartnerId) throw new Error("Who paid is required");
+
+  const partner = await prisma.partner.findFirst({
+    where: { id: paidByPartnerId, ownerId },
+  });
+  if (!partner) throw new Error("Partner not found");
 
   const fields = parseCardFields(formData);
   const lineTotal = fields.unitCost * fields.quantity;
@@ -447,12 +472,14 @@ export async function addBuyLineItem(formData: FormData) {
           session.date,
           [fields.notes, showNote].filter(Boolean).join(" · ")
         ),
+        ownerId,
         paidByPartnerId,
       },
     });
 
     const contribution = await tx.contribution.create({
       data: {
+        ownerId,
         partnerId: paidByPartnerId,
         date: session.date,
         amount: lineTotal,
@@ -462,6 +489,7 @@ export async function addBuyLineItem(formData: FormData) {
 
     await tx.buyLineItem.create({
       data: {
+        ownerId,
         buySessionId,
         ...fields,
         paidByPartnerId,
@@ -477,9 +505,9 @@ export async function addBuyLineItem(formData: FormData) {
 }
 
 export async function deleteBuyLineItem(id: string) {
-  await requireUser();
-  const item = await prisma.buyLineItem.findUnique({
-    where: { id },
+  const ownerId = await requireOwnerId();
+  const item = await prisma.buyLineItem.findFirst({
+    where: { id, ownerId },
     include: { inventoryItem: true },
   });
   if (!item) throw new Error("Item not found");
@@ -562,7 +590,7 @@ function parseIncomingTradeCards(raw: FormDataEntryValue | null): IncomingTradeC
 }
 
 export async function createTrade(formData: FormData) {
-  await requireUser();
+  const ownerId = await requireOwnerId();
   const buySessionId =
     String(formData.get("buySessionId") ?? "").trim() || null;
 
@@ -603,15 +631,15 @@ export async function createTrade(formData: FormData) {
 
   await prisma.$transaction(async (tx) => {
     if (buySessionId) {
-      const session = await tx.buySession.findUnique({
-        where: { id: buySessionId },
+      const session = await tx.buySession.findFirst({
+        where: { id: buySessionId, ownerId },
         select: { id: true },
       });
       if (!session) throw new Error("Show day not found");
     }
 
     const outgoing = await tx.inventoryItem.findMany({
-      where: { id: { in: outgoingIds } },
+      where: { id: { in: outgoingIds }, ownerId },
     });
     if (outgoing.length !== outgoingIds.length) {
       throw new Error("One or more outgoing cards were not found");
@@ -623,14 +651,14 @@ export async function createTrade(formData: FormData) {
     }
 
     if (cashPaidByPartnerId) {
-      const partner = await tx.partner.findUnique({
-        where: { id: cashPaidByPartnerId },
+      const partner = await tx.partner.findFirst({
+        where: { id: cashPaidByPartnerId, ownerId },
       });
       if (!partner) throw new Error("Select who paid the cash");
     }
     if (cashReceivedByPartnerId) {
-      const partner = await tx.partner.findUnique({
-        where: { id: cashReceivedByPartnerId },
+      const partner = await tx.partner.findFirst({
+        where: { id: cashReceivedByPartnerId, ownerId },
       });
       if (!partner) throw new Error("Select who received the cash");
     }
@@ -645,6 +673,7 @@ export async function createTrade(formData: FormData) {
       cashPaid > 0 && cashPaidByPartnerId
         ? await tx.contribution.create({
             data: {
+              ownerId,
               partnerId: cashPaidByPartnerId,
               date: tradeDate,
               amount: cashPaid,
@@ -655,6 +684,7 @@ export async function createTrade(formData: FormData) {
 
     const trade = await tx.trade.create({
       data: {
+        ownerId,
         buySessionId,
         date: tradeDate,
         notes,
@@ -685,6 +715,7 @@ export async function createTrade(formData: FormData) {
       const cardType = card.cardType === "graded" ? "graded" : "raw";
       const inventoryItem = await tx.inventoryItem.create({
         data: {
+          ownerId,
           name: card.name,
           setName: card.setName?.trim() || null,
           cardNumber: card.cardNumber?.trim() || null,
@@ -728,9 +759,9 @@ export async function createTrade(formData: FormData) {
 }
 
 export async function deleteTrade(id: string) {
-  await requireUser();
-  const trade = await prisma.trade.findUnique({
-    where: { id },
+  const ownerId = await requireOwnerId();
+  const trade = await prisma.trade.findFirst({
+    where: { id, ownerId },
     include: {
       outItems: { include: { inventoryItem: true } },
       inItems: { include: { inventoryItem: true } },

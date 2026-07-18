@@ -16,17 +16,21 @@ import {
 } from "@/components/ui";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { prisma } from "@/lib/db";
+import { getOwnerId } from "@/lib/auth";
+import { getPartners } from "@/lib/partners";
 
 export const dynamic = "force-dynamic";
 
 export default async function TradesPage() {
+  const ownerId = await getOwnerId();
   const [partners, inStock, trades] = await Promise.all([
-    prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
+    getPartners(ownerId),
     prisma.inventoryItem.findMany({
-      where: { status: "in_stock" },
+      where: { ownerId, status: "in_stock" },
       orderBy: { purchaseDate: "desc" },
     }),
     prisma.trade.findMany({
+      where: { ownerId },
       orderBy: { date: "desc" },
       include: {
         cashPaidBy: true,

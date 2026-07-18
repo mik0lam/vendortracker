@@ -17,6 +17,8 @@ import {
 } from "@/lib/calculations";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { prisma } from "@/lib/db";
+import { getOwnerId } from "@/lib/auth";
+import { getPartners } from "@/lib/partners";
 import {
   Badge,
   Card,
@@ -37,6 +39,7 @@ type ActivityItem = {
 };
 
 export default async function DashboardPage() {
+  const ownerId = await getOwnerId();
   const [
     partners,
     inventory,
@@ -49,21 +52,24 @@ export default async function DashboardPage() {
     recentTrades,
     recentBuys,
   ] = await Promise.all([
-    prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.inventoryItem.findMany(),
+    getPartners(ownerId),
+    prisma.inventoryItem.findMany({ where: { ownerId } }),
     prisma.sale.findMany({
+      where: { ownerId },
       include: { inventoryItem: true, receivedBy: true },
     }),
-    prisma.expense.findMany(),
-    prisma.contribution.findMany(),
-    prisma.collectionWithdrawal.findMany(),
-    prisma.trade.findMany(),
+    prisma.expense.findMany({ where: { ownerId } }),
+    prisma.contribution.findMany({ where: { ownerId } }),
+    prisma.collectionWithdrawal.findMany({ where: { ownerId } }),
+    prisma.trade.findMany({ where: { ownerId } }),
     prisma.sale.findMany({
+      where: { ownerId },
       take: 12,
       orderBy: { createdAt: "desc" },
       include: { inventoryItem: true },
     }),
     prisma.trade.findMany({
+      where: { ownerId },
       take: 12,
       orderBy: { createdAt: "desc" },
       include: {
@@ -72,6 +78,7 @@ export default async function DashboardPage() {
       },
     }),
     prisma.buyLineItem.findMany({
+      where: { ownerId },
       take: 12,
       orderBy: { createdAt: "desc" },
       include: { buySession: true },

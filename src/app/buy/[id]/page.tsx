@@ -29,6 +29,8 @@ import {
 } from "@/lib/buy-summary";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { prisma } from "@/lib/db";
+import { getOwnerId } from "@/lib/auth";
+import { getPartners } from "@/lib/partners";
 
 export const dynamic = "force-dynamic";
 
@@ -38,10 +40,11 @@ export default async function BuySessionPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const ownerId = await getOwnerId();
 
   const [session, partners, inStock] = await Promise.all([
-    prisma.buySession.findUnique({
-      where: { id },
+    prisma.buySession.findFirst({
+      where: { id, ownerId },
       include: {
         items: {
           include: {
@@ -62,9 +65,9 @@ export default async function BuySessionPage({
         },
       },
     }),
-    prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
+    getPartners(ownerId),
     prisma.inventoryItem.findMany({
-      where: { status: "in_stock" },
+      where: { ownerId, status: "in_stock" },
       orderBy: { purchaseDate: "desc" },
     }),
   ]);

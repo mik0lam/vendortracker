@@ -11,11 +11,14 @@ import {
 import { formatCurrency, formatDate } from "@/lib/format";
 import { lineTotal } from "@/lib/buy-summary";
 import { prisma } from "@/lib/db";
+import { getOwnerId } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function BuyPage() {
+  const ownerId = await getOwnerId();
   const sessions = await prisma.buySession.findMany({
+    where: { ownerId },
     include: {
       items: true,
     },

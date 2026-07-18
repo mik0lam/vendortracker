@@ -15,11 +15,14 @@ import {
 } from "@/components/ui";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { prisma } from "@/lib/db";
+import { getOwnerId } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function ExpensesPage() {
+  const ownerId = await getOwnerId();
   const expenses = await prisma.expense.findMany({
+    where: { ownerId },
     orderBy: { date: "desc" },
   });
 

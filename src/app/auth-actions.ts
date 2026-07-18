@@ -1,10 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import {
-  isAllowedEmail,
-  isSupabaseConfigured,
-} from "@/lib/supabase/config";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type AuthState = {
@@ -18,11 +15,6 @@ function credentials(formData: FormData) {
 
   if (!email || !password) {
     return { error: "Email and password are required." } as const;
-  }
-  if (!isAllowedEmail(email)) {
-    return {
-      error: "This email has not been invited to the shared workspace.",
-    } as const;
   }
   if (password.length < 8) {
     return { error: "Password must be at least 8 characters." } as const;

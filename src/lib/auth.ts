@@ -1,10 +1,10 @@
 import type { User } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
-import {
-  isAllowedEmail,
-  isSupabaseConfigured,
-} from "@/lib/supabase/config";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+/** Owner id used when auth is not configured (local development). */
+export const LOCAL_OWNER_ID = "local";
 
 export async function getCurrentUser(): Promise<User | null> {
   if (!isSupabaseConfigured()) return null;
@@ -14,8 +14,7 @@ export async function getCurrentUser(): Promise<User | null> {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user || !isAllowedEmail(user.email)) return null;
-  return user;
+  return user ?? null;
 }
 
 export async function requireUser(): Promise<User | null> {
@@ -29,4 +28,16 @@ export async function requireUser(): Promise<User | null> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   return user;
+}
+
+/** Current account's owner id; redirects to /login when signed out. */
+export async function requireOwnerId(): Promise<string> {
+  const user = await requireUser();
+  return user?.id ?? LOCAL_OWNER_ID;
+}
+
+/** Owner id for read-only page rendering (middleware already gates access). */
+export async function getOwnerId(): Promise<string> {
+  const user = await getCurrentUser();
+  return user?.id ?? LOCAL_OWNER_ID;
 }

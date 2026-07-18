@@ -8,6 +8,8 @@ datasource db {
 
 model Partner {
   id                    String                 @id @default(cuid())
+  /// Supabase auth user id owning this record
+  ownerId               String                 @default("")
   name                  String
   splitPercent          Float                  @default(50)
   createdAt             DateTime               @default(now())
@@ -19,10 +21,14 @@ model Partner {
   collectionWithdrawals CollectionWithdrawal[]
   tradesCashPaid        Trade[]                @relation("TradeCashPaid")
   tradesCashReceived    Trade[]                @relation("TradeCashReceived")
+
+  @@index([ownerId])
 }
 
 model InventoryItem {
   id                     String                @id @default(cuid())
+  /// Supabase auth user id owning this record
+  ownerId                String                @default("")
   name                   String
   setName                String?
   cardNumber             String?
@@ -56,10 +62,14 @@ model InventoryItem {
   collectionWithdrawal   CollectionWithdrawal?
   tradeOutItem           TradeOutItem?
   tradeInItem            TradeInItem?
+
+  @@index([ownerId])
 }
 
 model Sale {
   id                  String        @id @default(cuid())
+  /// Supabase auth user id owning this record
+  ownerId             String        @default("")
   inventoryItemId     String        @unique
   inventoryItem       InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
   saleDate            DateTime
@@ -71,10 +81,14 @@ model Sale {
   receivedByPartnerId String?
   receivedBy          Partner?      @relation("ReceivedSales", fields: [receivedByPartnerId], references: [id], onDelete: SetNull)
   createdAt           DateTime      @default(now())
+
+  @@index([ownerId])
 }
 
 model CollectionWithdrawal {
   id               String        @id @default(cuid())
+  /// Supabase auth user id owning this record
+  ownerId          String        @default("")
   inventoryItemId  String        @unique
   inventoryItem    InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
   takenByPartnerId String
@@ -83,10 +97,14 @@ model CollectionWithdrawal {
   costBasis        Float
   notes            String?
   createdAt        DateTime      @default(now())
+
+  @@index([ownerId])
 }
 
 model Trade {
   id                        String        @id @default(cuid())
+  /// Supabase auth user id owning this record
+  ownerId                   String        @default("")
   buySessionId              String?
   buySession                BuySession?   @relation(fields: [buySessionId], references: [id], onDelete: Restrict)
   date                      DateTime
@@ -104,6 +122,8 @@ model Trade {
   createdAt                 DateTime      @default(now())
   outItems                  TradeOutItem[]
   inItems                   TradeInItem[]
+
+  @@index([ownerId])
 }
 
 model TradeOutItem {
@@ -126,15 +146,21 @@ model TradeInItem {
 
 model Expense {
   id        String   @id @default(cuid())
+  /// Supabase auth user id owning this record
+  ownerId   String   @default("")
   date      DateTime
   category  String
   amount    Float
   note      String?
   createdAt DateTime @default(now())
+
+  @@index([ownerId])
 }
 
 model Contribution {
   id                String         @id @default(cuid())
+  /// Supabase auth user id owning this record
+  ownerId           String         @default("")
   partnerId         String
   partner           Partner        @relation(fields: [partnerId], references: [id], onDelete: Cascade)
   date              DateTime
@@ -144,10 +170,14 @@ model Contribution {
   buyLineItem       BuyLineItem?
   inventoryPurchase InventoryItem? @relation("InventoryPurchaseContribution")
   tradeCashPaid     Trade?         @relation("TradeCashPaidContribution")
+
+  @@index([ownerId])
 }
 
 model BuySession {
   id        String        @id @default(cuid())
+  /// Supabase auth user id owning this record
+  ownerId   String        @default("")
   date      DateTime
   name      String
   location  String?
@@ -155,10 +185,14 @@ model BuySession {
   createdAt DateTime      @default(now())
   items     BuyLineItem[]
   trades    Trade[]
+
+  @@index([ownerId])
 }
 
 model BuyLineItem {
   id                  String         @id @default(cuid())
+  /// Supabase auth user id owning this record
+  ownerId             String         @default("")
   buySessionId        String
   buySession          BuySession     @relation(fields: [buySessionId], references: [id], onDelete: Cascade)
   name                String
@@ -189,4 +223,6 @@ model BuyLineItem {
   /// en | ja — TCGplayer catalog language
   language            String         @default("en")
   createdAt           DateTime       @default(now())
+
+  @@index([ownerId])
 }

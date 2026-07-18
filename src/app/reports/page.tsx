@@ -9,6 +9,8 @@ import {
 import { formatCurrency, formatDate } from "@/lib/format";
 import { itemDisplayLabel } from "@/lib/item-label";
 import { prisma } from "@/lib/db";
+import { getOwnerId } from "@/lib/auth";
+import { getPartners } from "@/lib/partners";
 import {
   Button,
   Card,
@@ -82,6 +84,7 @@ export default async function ReportsPage({
   const params = await searchParams;
   const { year, month } = parseMonth(params.month);
   const monthValue = `${year}-${String(month).padStart(2, "0")}`;
+  const ownerId = await getOwnerId();
 
   const [
     partners,
@@ -92,19 +95,24 @@ export default async function ReportsPage({
     collectionWithdrawals,
     trades,
   ] = await Promise.all([
-    prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.inventoryItem.findMany({ orderBy: { purchaseDate: "desc" } }),
+    getPartners(ownerId),
+    prisma.inventoryItem.findMany({
+      where: { ownerId },
+      orderBy: { purchaseDate: "desc" },
+    }),
     prisma.sale.findMany({
+      where: { ownerId },
       include: { inventoryItem: true, receivedBy: true },
       orderBy: { saleDate: "desc" },
     }),
-    prisma.expense.findMany({ orderBy: { date: "desc" } }),
-    prisma.contribution.findMany(),
+    prisma.expense.findMany({ where: { ownerId }, orderBy: { date: "desc" } }),
+    prisma.contribution.findMany({ where: { ownerId } }),
     prisma.collectionWithdrawal.findMany({
+      where: { ownerId },
       include: { inventoryItem: true, takenBy: true },
       orderBy: { date: "desc" },
     }),
-    prisma.trade.findMany(),
+    prisma.trade.findMany({ where: { ownerId } }),
   ]);
 
   const pnl = computeMonthlyPnL(year, month, sales, expenses, partners);

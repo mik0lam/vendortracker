@@ -33,7 +33,7 @@ export function AuthForm() {
         </div>
         <h1 className="text-2xl font-bold tracking-tight">Vendor Tracker</h1>
         <p className="mt-1.5 text-sm text-muted">
-          Michael and Dillon&apos;s shared Pokemon card workspace
+          Track your Pokemon card inventory, sales, and trades
         </p>
       </div>
 
@@ -116,8 +116,8 @@ export function AuthForm() {
       </form>
 
       <p className="mt-5 text-center text-xs leading-relaxed text-muted">
-        Access is invite-only. Only email addresses configured by the workspace
-        owner can register.
+        Create an account to get your own private workspace. Your data is only
+        visible to you.
       </p>
     </div>
   );

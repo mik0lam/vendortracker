@@ -8,7 +8,7 @@ import {
 import { escapeCsv } from "@/lib/format";
 import { itemDisplayLabel } from "@/lib/item-label";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, LOCAL_OWNER_ID } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 export const dynamic = "force-dynamic";
@@ -32,9 +32,11 @@ function csvResponse(filename: string, body: string) {
 }
 
 export async function GET(request: NextRequest) {
-  if (isSupabaseConfigured() && !(await getCurrentUser())) {
+  const user = await getCurrentUser();
+  if (isSupabaseConfigured() && !user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const ownerId = user?.id ?? LOCAL_OWNER_ID;
 
   const type = request.nextUrl.searchParams.get("type") ?? "summary";
   const { year, month } = parseMonth(request.nextUrl.searchParams.get("month"));
@@ -42,14 +44,22 @@ export async function GET(request: NextRequest) {
 
   const [partners, inventory, sales, expenses, collectionWithdrawals] =
     await Promise.all([
-    prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.inventoryItem.findMany({ orderBy: { purchaseDate: "desc" } }),
+    prisma.partner.findMany({
+      where: { ownerId },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.inventoryItem.findMany({
+      where: { ownerId },
+      orderBy: { purchaseDate: "desc" },
+    }),
     prisma.sale.findMany({
+      where: { ownerId },
       include: { inventoryItem: true, receivedBy: true },
       orderBy: { saleDate: "desc" },
     }),
-    prisma.expense.findMany({ orderBy: { date: "desc" } }),
+    prisma.expense.findMany({ where: { ownerId }, orderBy: { date: "desc" } }),
     prisma.collectionWithdrawal.findMany({
+      where: { ownerId },
       include: { inventoryItem: true, takenBy: true },
       orderBy: { date: "desc" },
     }),

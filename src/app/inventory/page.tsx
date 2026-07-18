@@ -21,6 +21,8 @@ import {
 } from "@/components/ui";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { prisma } from "@/lib/db";
+import { getOwnerId } from "@/lib/auth";
+import { getPartners } from "@/lib/partners";
 import { tcgplayerUrlFor } from "@/lib/tcgplayer";
 import { fetchMarketPricesForGroups } from "@/lib/tcgcsv";
 
@@ -35,12 +37,14 @@ export default async function InventoryPage({
   const status = params.status ?? "in_stock";
   const q = (params.q ?? "").trim().toLowerCase();
 
+  const ownerId = await getOwnerId();
   const [items, partners] = await Promise.all([
     prisma.inventoryItem.findMany({
+      where: { ownerId },
       orderBy: { purchaseDate: "desc" },
       include: { sale: true, paidBy: true },
     }),
-    prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
+    getPartners(ownerId),
   ]);
 
   const filtered = items.filter((item) => {

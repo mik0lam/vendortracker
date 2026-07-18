@@ -1,5 +1,4 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { isAllowedEmail } from "@/lib/supabase/config";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
@@ -15,15 +14,6 @@ export async function GET(request: NextRequest) {
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
     loginUrl.searchParams.set("error", error.message);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!isAllowedEmail(user?.email)) {
-    await supabase.auth.signOut();
-    loginUrl.searchParams.set("error", "This email has not been invited.");
     return NextResponse.redirect(loginUrl);
   }
 

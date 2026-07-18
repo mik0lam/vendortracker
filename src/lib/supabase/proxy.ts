@@ -2,7 +2,6 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import {
   getSupabaseConfig,
-  isAllowedEmail,
   isSupabaseConfigured,
 } from "@/lib/supabase/config";
 
@@ -40,7 +39,7 @@ export async function updateSession(request: NextRequest) {
   const isPublicRoute =
     pathname === "/login" || pathname.startsWith("/auth/");
   const isCardSearchApi = pathname.startsWith("/api/cards/");
-  const authorized = Boolean(user && isAllowedEmail(user.email));
+  const authorized = Boolean(user);
 
   if (!authorized && isCardSearchApi) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

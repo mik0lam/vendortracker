@@ -17,15 +17,3 @@ export function getSupabaseConfig() {
 
   return { url, key };
 }
-
-export function getAllowedEmails(): string[] {
-  return (process.env.ALLOWED_SIGNUP_EMAILS ?? "")
-    .split(",")
-    .map((email) => email.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-export function isAllowedEmail(email: string | undefined): boolean {
-  if (!email) return false;
-  return getAllowedEmails().includes(email.trim().toLowerCase());
-}

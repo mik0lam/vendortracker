@@ -21,22 +21,27 @@ import {
 import { formatCurrency, formatDate } from "@/lib/format";
 import { itemDisplayLabel } from "@/lib/item-label";
 import { prisma } from "@/lib/db";
+import { getOwnerId } from "@/lib/auth";
+import { getPartners } from "@/lib/partners";
 import { fetchMarketPricesForGroups } from "@/lib/tcgcsv";
 
 export const dynamic = "force-dynamic";
 
 export default async function SalesPage() {
+  const ownerId = await getOwnerId();
   const [sales, inStock, partners, collectionWithdrawals] = await Promise.all([
     prisma.sale.findMany({
+      where: { ownerId },
       include: { inventoryItem: true, receivedBy: true },
       orderBy: { saleDate: "desc" },
     }),
     prisma.inventoryItem.findMany({
-      where: { status: "in_stock" },
+      where: { ownerId, status: "in_stock" },
       orderBy: { purchaseDate: "desc" },
     }),
-    prisma.partner.findMany({ orderBy: { createdAt: "asc" } }),
+    getPartners(ownerId),
     prisma.collectionWithdrawal.findMany({
+      where: { ownerId },
       include: { inventoryItem: true, takenBy: true },
       orderBy: { date: "desc" },
     }),
