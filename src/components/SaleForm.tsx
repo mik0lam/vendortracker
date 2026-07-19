@@ -3,16 +3,16 @@
 import { useState, useTransition } from "react";
 import { createSale } from "@/app/actions";
 import { CardThumb } from "@/components/CardThumb";
+import {
+  InventoryItemSelect,
+  type InventorySelectItem,
+} from "@/components/InventoryItemSelect";
 import { toDateInputValue } from "@/lib/format";
 import { Button, ErrorText, Field, Input, Select, Textarea } from "@/components/ui";
 
-type ItemOption = {
-  id: string;
-  name: string;
+type ItemOption = InventorySelectItem & {
   unitCost: number;
   quantity: number;
-  label: string;
-  imageUrl?: string | null;
 };
 
 type PartnerOption = { id: string; name: string };
@@ -62,20 +62,13 @@ export function SaleForm({
         <Field label="Card" htmlFor="inventoryItemId">
           <div className="flex items-start gap-3">
             <CardThumb src={selected?.imageUrl} alt={selected?.name} />
-            <Select
+            <InventoryItemSelect
               id="inventoryItemId"
-              name="inventoryItemId"
-              required
+              items={items}
               value={selectedId}
-              onChange={(e) => setSelectedId(e.target.value)}
+              onChange={setSelectedId}
               className="flex-1"
-            >
-              {items.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
-            </Select>
+            />
           </div>
         </Field>
       </div>

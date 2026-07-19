@@ -53,6 +53,11 @@ export default async function SalesPage() {
     unitCost: i.unitCost,
     quantity: i.quantity,
     imageUrl: i.imageUrl,
+    setName: i.setName,
+    cardNumber: i.cardNumber,
+    condition: i.condition,
+    gradeCompany: i.gradeCompany,
+    grade: i.grade,
     label: `${itemDisplayLabel(i)} · cost ${formatCurrency(i.unitCost * i.quantity)}`,
   }));
 

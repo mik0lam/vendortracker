@@ -3,6 +3,10 @@
 import { useState, useTransition } from "react";
 import { createCollectionWithdrawal } from "@/app/actions";
 import { CardThumb } from "@/components/CardThumb";
+import {
+  InventoryItemSelect,
+  type InventorySelectItem,
+} from "@/components/InventoryItemSelect";
 import { toDateInputValue } from "@/lib/format";
 import {
   Button,
@@ -13,12 +17,7 @@ import {
   Textarea,
 } from "@/components/ui";
 
-type ItemOption = {
-  id: string;
-  name: string;
-  label: string;
-  imageUrl?: string | null;
-};
+type ItemOption = InventorySelectItem;
 
 type PartnerOption = { id: string; name: string };
 
@@ -58,20 +57,13 @@ export function CollectionWithdrawalForm({
         <Field label="Card" htmlFor="collectionInventoryItemId">
           <div className="flex items-start gap-3">
             <CardThumb src={selected?.imageUrl} alt={selected?.name} />
-            <Select
+            <InventoryItemSelect
               id="collectionInventoryItemId"
-              name="inventoryItemId"
-              required
+              items={items}
               value={selectedId}
-              onChange={(event) => setSelectedId(event.target.value)}
+              onChange={setSelectedId}
               className="flex-1"
-            >
-              {items.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
-            </Select>
+            />
           </div>
         </Field>
       </div>
